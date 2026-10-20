@@ -1,0 +1,96 @@
+[project]
+name = "agentverse"
+version = "0.1.0"
+description = "AgentVerse: LLM Orchestration Platform"
+
+requires-python = ">=3.11"
+
+# Main dependencies
+dependencies = [
+    "aiohttp>=3.14.3",
+    "azure-identity>=1.19.0",
+    "azure-search-documents>=11.6.0",
+    "beautifulsoup4>=4.12.3",
+    "cachetools>=5.3.0",
+    "chromadb>=1.5.7",
+    "cryptography>=46.0.5",
+    "dependency-injector==4.47.1",
+    "fastapi==0.135.3",
+    "fastapi-limiter==0.1.6",
+    "httpx>=0.25.0",
+    "langchain-chroma>=1.1.0",
+    "langchain-core>=1.3.3",
+    "lxml>=5.3.0",
+    "motor>=3.0.0",
+    "nltk>=3.10.0",
+    "openai>=2.14.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "pypdf>=6.14.2",
+    "azure-storage-blob>=12.19.0",
+    "python-jose>=3.4.0",
+    "playwright>=1.60.0",
+    "puremagic>=1.28",
+    "python-multipart>=0.0.31",
+    "redis==6.0",
+    "redis-entraid==1.1.2",
+    "starlette>=1.3.1",
+    "uvicorn[standard]==0.44.0",
+    "watchdog==3.0.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=9.0.3",
+    "pytest-asyncio>=0.21.1",
+    "pytest-cov>=4.1.0",
+    "pytest-mock>=3.12.0",
+    "ruff>=0.7.0",
+    "mypy>=1.8.0",
+    "watchdog==3.0.0",
+]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+# ------------------------
+# Tooling Configuration
+# ------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-select = ["F401", "I", "UP"]
+fix = true
+
+[tool.mypy]
+python_version = "3.11"
+disallow_untyped_defs = true
+check_untyped_defs = true
+ignore_missing_imports = true
+strict_optional = true
+
+[tool.pytest.ini_options]
+# Include both the project root (so `from src.xxx ...` imports work) and `src`
+# (so legacy `from base...` / `from domains...` imports work). Match the surrounding
+# file's style — see AGENTS.md "Tests".
+pythonpath = [".", "src"]
+testpaths = ["src"]
+python_files = ["test_*.py"]
+addopts = "-ra"
+
+[tool.coverage.run]
+source = ["src"]
+# Exclude the tests themselves so coverage reflects app code only.
+omit = ["src/**/tests/*", "*/conftest.py"]
+
+[tool.coverage.report]
+show_missing = true
+ignore_errors = true
+include_namespace_packages = true
+
+[tool.pylance]
+extraPaths = ["src"]
+
+[tool.ruff.pyupgrade]
+keep-runtime-typing = false
