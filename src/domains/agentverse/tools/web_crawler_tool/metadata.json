@@ -1,0 +1,42 @@
+{
+    "schema": "artifact.manifest.v1",
+  
+    "run": {
+      "id": "...",
+      "started_at": "...",
+      "finished_at": "...",
+      "duration_ms": 2143,
+  
+      "source_url": "...",
+  
+      "mode": "browser",
+      "crawl_strategy": "broad",
+  
+      "output_profile": "general",
+      "output_format": "json",
+  
+      "page_count": 5,
+      "error_count": 0
+    },
+  
+    "artifacts": [
+      {
+        "id": "crawl_summary",
+        "filename": "crawl_summary.json",
+        "report": "crawl_summary",
+        "size_bytes": 2456
+      },
+      {
+        "id": "seo",
+        "filename": "seo.json",
+        "report": "seo",
+        "size_bytes": 7252
+      },
+      {
+        "id": "links",
+        "filename": "links.json",
+        "report": "links",
+        "size_bytes": 357635
+      }
+    ]
+  }

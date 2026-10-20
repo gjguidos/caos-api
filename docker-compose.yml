@@ -1,0 +1,167 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: agentverse
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./logs:/app/logs
+      - ./src:/app/src
+      - ./chroma_db:/app/chroma_db
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro 
+    env_file:
+      - .env
+    environment:
+      - MCP_PROXY_ENABLED=${MCP_PROXY_ENABLED:-false}
+      - MCP_PROXY_BASE_URL=http://mcp-proxy:8080/api
+    depends_on:
+      mongo-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: always
+    networks:
+      - app_network
+
+  mongo:
+    image: mongo:8.0
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongodb-data:/data/db
+    networks:
+      - app_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ ping: 1 }).ok"]
+      interval: 10s
+      timeout: 10s
+      retries: 6
+
+  mongo-init:
+    image: mongo:8.0
+    depends_on:
+      mongo:
+        condition: service_healthy
+    entrypoint: ["mongosh", "--host", "mongo:27017", "--quiet"]
+    command:
+      - --eval
+      - |
+        const admin = db.getSiblingDB("admin");
+        let config;
+
+        try {
+          config = rs.conf();
+        } catch (error) {
+          if (error.code !== 94 && error.codeName !== "NotYetInitialized") {
+            throw error;
+          }
+
+          const result = rs.initiate({
+            _id: "rs0",
+            members: [{ _id: 0, host: "mongo:27017" }]
+          });
+
+          if (result.ok !== 1) {
+            throw new Error("Replica set initiation failed: " + tojson(result));
+          }
+
+          config = rs.conf();
+        }
+
+        const member = config.members.find((item) => item._id === 0);
+        if (!member || member.host !== "mongo:27017") {
+          throw new Error("Replica set member must be mongo:27017");
+        }
+
+        const deadline = Date.now() + 60000;
+        while (Date.now() < deadline) {
+          if (admin.runCommand({ hello: 1 }).isWritablePrimary) {
+            print("Replica set rs0 is ready.");
+            quit(0);
+          }
+          sleep(1000);
+        }
+
+        throw new Error("Timed out waiting for rs0 to become primary.");
+    networks:
+      - app_network
+    restart: "no"
+
+  redis:
+    image: redis:6-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - app_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+
+  mcp-proxy:
+    profiles: ["full"]
+    build:
+      context: ../agentverse-proxy
+      dockerfile: Dockerfile
+    container_name: mcp-proxy
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+    depends_on:
+      tool-server:
+          condition: service_healthy
+    volumes:
+      - ../agentverse-proxy/tool_servers:/app/tool_servers:ro
+    networks:
+      - app_network
+    restart: unless-stopped 
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  tool-server:
+    profiles: ["full"]
+    build:
+      context: ../agentverse-tool-server
+      dockerfile: Dockerfile
+    container_name: agentverse-tool-server
+    ports:
+      - "8002:8002"
+    env_file:
+      - ../agentverse-tool-server/.env
+    volumes:
+      - ../agentverse-tool-server/src:/app/src
+      - ../agentverse-tool-server/entrypoint.py:/app/entrypoint.py
+      - ../agentverse-tool-server/pyproject.toml:/app/pyproject.toml
+    environment:
+      - WATCHFILES_FORCE_POLLING=true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health')"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - app_network
+
+networks:
+  app_network:
+    name: agentverse_net
+    driver: bridge
+
+volumes:
+  mongodb-data:
+  redis-data:

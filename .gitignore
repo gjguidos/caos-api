@@ -1,0 +1,29 @@
+logs
+.env
+venv
+.venv
+chroma_db
+__pycache__
+src/main/resources/application-dev.properties
+.pytest_cache
+.mypy_cache
+
+# coverage
+htmlcov
+.coverage
+.coverage.*
+
+# copilot instructions
+.github/copilot-instructions.md
+.github/instructions/
+
+# IDE files
+src/agentverse.egg-info
+src/agentverse.egg-info/*
+
+# Claude & Codex
+.claude
+CLAUDE.md
+.codex
+plans/*
+.DS_Store
