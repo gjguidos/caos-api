@@ -67,9 +67,22 @@ class OpenAIClient:
         if self._write_request_and_response_to_file:
             self.message_logger = MessageLogger()
 
+        configured_models = {
+            "chat": chat_model,
+            "embedding": embedding_model,
+            "image": image_model,
+            "audio": whispering_model,
+        }
+
+        active_models = {
+            capability: model
+            for capability, model in configured_models.items()
+            if model is not None
+        }
+
         logger.info(
-            "OpenAIClient initialized — chat model: %s",
-            chat_model,
+            "OpenAIClient initialized — models=%s",
+            active_models,
         )
 
     # ----------------------------

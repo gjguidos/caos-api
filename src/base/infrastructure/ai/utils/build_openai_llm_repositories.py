@@ -1,3 +1,4 @@
+from __future__ import annotations
 
 import logging
 from collections import defaultdict
@@ -30,7 +31,7 @@ def build_openai_repositories(
             OpenAIClient(
                 api_key=cfg.openai_api_key,
                 base_url=cfg.openai_url,
-                chat_model=chat_model or cfg.default_chat_model,
+                chat_model=chat_model,
                 embedding_model=embedding_model,
                 whispering_model=whispering_model,
                 image_model=image_model,

@@ -4,6 +4,7 @@ import logging
 from dependency_injector import containers, providers
 
 from src.base.config.ai_models_config import AiModelsConfig
+from src.base.config.config import settings as app_settings
 from src.base.infrastructure.ai.utils.build_combined_repositories import (
     build_combined_repositories,
 )
@@ -17,15 +18,12 @@ def select_repository(
     slug: str,
 ):
     group = repositories.get(domain, {})
-
     repo = group.get(slug)
 
     if repo is None:
-        available = list(group.keys())
-
         raise RuntimeError(
             f"No {domain} repository for '{slug}'. "
-            f"Available: {available}"
+            f"Available: {list(group.keys())}"
         )
 
     return repo
@@ -43,7 +41,9 @@ def build_default_slug(
 
         deployments = settings.parsed_azure_chat_deployments
         if not deployments:
-            raise RuntimeError("No Azure chat deployment configured")
+            raise RuntimeError(
+                "No Azure chat deployment configured"
+            )
         return f"azure-{deployments[0]}"
 
     if domain == "embedding":
@@ -52,14 +52,22 @@ def build_default_slug(
 
         deployments = settings.parsed_azure_embedding_deployments
         if not deployments:
-            raise RuntimeError("No Azure embedding deployment configured")
+            raise RuntimeError(
+                "No Azure embedding deployment configured"
+            )
         return f"azure-{deployments[0]}"
 
-    raise ValueError(f"Unsupported cognitive domain: {domain}")
+    raise ValueError(
+        f"Unsupported cognitive domain: {domain}"
+    )
 
 
 class LLMContainer(containers.DeclarativeContainer):
-    settings = providers.Singleton(AiModelsConfig)
+    """Shared LLM repository catalog."""
+
+    settings = providers.Object(
+        app_settings.ai_models
+    )
 
     repositories = providers.Singleton(
         build_combined_repositories,

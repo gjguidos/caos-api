@@ -6,10 +6,12 @@ from src.base.config.blob_storage_config import BlobStorageConfig
 from src.base.config.browser_session_settings import BrowserSessionSettings
 from src.base.config.cache_settings import CacheSettings
 from src.base.config.chromadb_config import ChromaDBSettings
+from src.base.config.cognitive_event_config import CognitiveEventConfig
 from src.base.config.db_settings import DatabaseSettings
 from src.base.config.event_config import EventConfig
 from src.base.config.logger_config import LoggerConfig
 from src.base.config.mcp_proxy_config import MCPProxyConfig
+from src.base.config.messaging_config import MessagingConfig
 from src.base.config.orchestrator_config import OrchestratorConfig
 from src.base.config.run_report_config import RunReportConfig
 from src.base.config.sacred_keys import SacredKeys
@@ -42,6 +44,8 @@ class Settings:
         self.blob_storage: BlobStorageConfig = BlobStorageConfig()
         self.run_report: RunReportConfig = RunReportConfig()
         self.orchestrator: OrchestratorConfig = OrchestratorConfig()
+        self.messaging: MessagingConfig = MessagingConfig()
+        self.cognitive_event: CognitiveEventConfig = CognitiveEventConfig()
 
 
 settings = Settings()

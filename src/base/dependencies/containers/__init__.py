@@ -3,10 +3,12 @@ from src.base.dependencies.containers.azure_openai_container import AzureOpenAIC
 from src.base.dependencies.containers.azure_search_container import AzureSearchContainer
 from src.base.dependencies.containers.blob_storage_container import BlobStorageContainer
 from src.base.dependencies.containers.chromadb_container import ChromaDBContainer
+from src.base.dependencies.containers.cognitive_event_container import CognitiveEventContainer
 from src.base.dependencies.containers.db_container import DatabaseContainer
 from src.base.dependencies.containers.event_container import EventContainer
 from src.base.dependencies.containers.http_container import HttpContainer
 from src.base.dependencies.containers.llm_container import LLMContainer
+from src.base.dependencies.containers.messaging_container import MessagingContainer
 from src.base.dependencies.containers.operation_container import OperationsContainer
 from src.base.dependencies.containers.rate_limiter_container import RateLimiterContainer
 from src.base.dependencies.containers.redis_container import RedisContainer
@@ -32,4 +34,6 @@ __all__ = [
     "HttpContainer",
     "redis_resource",
     "OperationsContainer",
+    "MessagingContainer",
+    "CognitiveEventContainer",
 ]

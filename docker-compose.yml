@@ -3,7 +3,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: agentverse
+      args:
+        APP_VERSION: "${APP_VERSION:-0.0.0.dev0}"
+        APP_REVISION: "${APP_REVISION:-unknown}"
+        APP_CHANNEL: "${APP_CHANNEL:-development}"
+    container_name: caos-api
     ports:
       - "8000:8000"
     volumes:
@@ -21,6 +25,8 @@ services:
       mongo-init:
         condition: service_completed_successfully
       redis:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     restart: always
     networks:
@@ -41,6 +47,27 @@ services:
       interval: 10s
       timeout: 10s
       retries: 6
+
+  
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672" # RabbitMQ Management UI
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-rabbit heartbeat_timeout 120"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - app_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "rabbitmqctl", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   mongo-init:
     image: mongo:8.0
@@ -165,3 +192,4 @@ networks:
 volumes:
   mongodb-data:
   redis-data:
+  rabbitmq-data:

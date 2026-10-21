@@ -61,6 +61,7 @@ class JWTVerificationMiddleware(BaseHTTPMiddleware):
             r"^/api/v1/dev/files/",
             r"^/api/v1/browser-sessions/callback",
             r"^/api/v1/browser-sessions/[^/]+/render/?$",
+            r"^/api/v1/system/version",
         ]
         self.auth_header = auth_header
         logger.info(
