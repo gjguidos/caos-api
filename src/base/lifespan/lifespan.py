@@ -52,6 +52,12 @@ async def lifespan(app: FastAPI):
 
     redis_repo = container.redis.redis_repository()
 
+    rabbitmq = app.container.messaging.rabbitmq_client()
+
+    await rabbitmq.connect()
+
+    runtime = container.cognitive_event.event_runtime()
+
     container.events.redis_repository.override(
         providers.Object(redis_repo)
     )
@@ -82,6 +88,9 @@ async def lifespan(app: FastAPI):
         # Ensure MongoDB connection is established
         await mongo_client.connect()
         logger.info("MongoDB connection established successfully")
+
+        await runtime.start()
+        logger.info("Cognitive event runtime started successfully")
 
         app.state.settings = settings
         app.state.mongodb = mongo_client
@@ -126,6 +135,9 @@ async def lifespan(app: FastAPI):
             },
             "communication": {
                 "socketRedisBridge": container.redis.socket_redis_bridge_service(),
+            },
+            "messaging": {
+                "rabbitmq": container.messaging.rabbitmq_service()
             },
             "knowledge_db": knowledge_db,
         }
@@ -184,6 +196,10 @@ async def lifespan(app: FastAPI):
         await cpu_executor_registry.aclose_all()
         # Close Redis connection (Splunk handler cleanup handled by DI container)
         await stack.aclose()
+
+        # Gracefully stop cognitive event runtime
+        await runtime.stop()
+        await rabbitmq.stop()
 
         # Close MongoDB connection
         await mongo_client.disconnect()

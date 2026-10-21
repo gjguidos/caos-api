@@ -1,6 +1,7 @@
 from src.base.interfaces.internal.health import router as health_check_router
 from src.base.interfaces.internal.rate_limited_endpoints import router as rate_limited_router
 from src.base.interfaces.public.operations import router as operations_router
+from src.base.interfaces.public.version import router as version_router
 
 
 def setup_internal_routes(app):
@@ -10,3 +11,4 @@ def setup_internal_routes(app):
     app.include_router(rate_limited_router, prefix="/rate-limit-examples", tags=["Rate Limiting"])
 
     app.include_router(operations_router, prefix="/api/v1/operations", tags=["Operations"])
+    app.include_router(version_router, prefix="/api/v1/system", tags=["System"])

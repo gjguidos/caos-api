@@ -1,5 +1,5 @@
 {
-  "repositoryUrl": "https://github.com/icomdev/CAOS-api.git",
+  "repositoryUrl": "https://github.com/gjguidos/caos-api",
   "branches": [
     "master",
     {
@@ -125,12 +125,6 @@
       {
         "changelogFile": "CHANGELOG.md",
         "changelogTitle": "# Changelog\n\nAll notable changes to this project will be documented in this file."
-      }
-    ],
-    [
-      "@semantic-release/npm",
-      {
-        "npmPublish": false
       }
     ],
     [
