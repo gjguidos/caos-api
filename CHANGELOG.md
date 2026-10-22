@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.0-alpha.3](https://github.com/gjguidos/caos-api/compare/v0.1.0-alpha.2...v0.1.0-alpha.3) (2026-10-22)
+
+### 🐛 Bug Fixes
+
+* **build:** support multi-platform Docker images ([17338e6](https://github.com/gjguidos/caos-api/commit/17338e652d7a55430e89210abfbb88b7faf4362c))
+
 ## [0.1.0-alpha.2](https://github.com/gjguidos/caos-api/compare/v0.1.0-alpha.1...v0.1.0-alpha.2) (2026-10-22)
 
 ### 🚀 Features
