@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.0-alpha.2](https://github.com/gjguidos/caos-api/compare/v0.1.0-alpha.1...v0.1.0-alpha.2) (2026-10-22)
+
+### 🚀 Features
+
+* **build:** add OCI metadata to CAOS Docker images ([7643bf2](https://github.com/gjguidos/caos-api/commit/7643bf262e4a184fb3373f0b18332ab9fd855b5e))
+
 ## [0.1.0-alpha.1](https://github.com/gjguidos/caos-api/compare/v0.0.0...v0.1.0-alpha.1) (2026-10-21)
 
 ### 🚀 Features
