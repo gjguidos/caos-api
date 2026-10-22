@@ -19,6 +19,12 @@ ARG APP_VERSION=0.0.0.dev0
 ARG APP_REVISION=unknown
 ARG APP_CHANNEL=development
 
+LABEL org.opencontainers.image.title="CAOS API" \
+      org.opencontainers.image.description="Cognitive Agentic Operative System API" \
+      org.opencontainers.image.version="${APP_VERSION}" \
+      org.opencontainers.image.revision="${APP_REVISION}" \
+      org.opencontainers.image.source="https://github.com/gjguidos/caos-api"
+      
 # Build-time version for setuptools-scm
 ENV SETUPTOOLS_SCM_PRETEND_VERSION_FOR_CAOS_API=${APP_VERSION}
 
