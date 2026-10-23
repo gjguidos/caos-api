@@ -31,3 +31,6 @@ plans/*
 #node_modules
 node_modules
 .npm
+
+# Disposable NCSC integration-test credentials
+.smoke/

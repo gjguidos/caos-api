@@ -1,0 +1,72 @@
+name: caos-ncsc-smoke
+services:
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    hostname: rabbitmq-smoke
+    restart: "no"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${SMOKE_ADMIN_USER:?}
+      RABBITMQ_DEFAULT_PASS: ${SMOKE_ADMIN_PASSWORD:?}
+    networks:
+      - smoke_network
+    healthcheck:
+      test:
+        - CMD
+        - rabbitmq-diagnostics
+        - -q
+        - ping
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+  provision:
+    image: python:3.11-alpine
+    restart: "no"
+    working_dir: /smoke
+    volumes:
+      - ./scripts/smoke/provision.py:/smoke/provision.py:ro
+    env_file:
+      - .smoke/credentials.env
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - smoke_network
+    command: ["python", "-B", "/smoke/provision.py"]
+  smoke:
+    build:
+      context: .
+      dockerfile: docker/smoke/Dockerfile
+      args:
+        APP_REVISION: ${SMOKE_COMMIT:?SMOKE_COMMIT is required}
+    restart: "no"
+    env_file:
+      - .smoke/credentials.env
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_VIRTUAL_HOST: caos-smoke-validation
+      RABBITMQ_EVENT_EXCHANGE: caos.smoke.validation
+      SMOKE_COMMIT: ${SMOKE_COMMIT:?SMOKE_COMMIT is required}
+      SMOKE_CLUSTER: "rabbit@rabbitmq-smoke"
+    depends_on:
+      provision:
+        condition: service_completed_successfully
+    networks:
+      - smoke_network
+    entrypoint: ["sh", "-ec"]
+    command:
+      - |
+        exec python -B -m src.base.events.v2.tests.live_rabbitmq_smoke \
+          --expected-host rabbitmq \
+          --expected-port 5672 \
+          --expected-vhost caos-smoke-validation \
+          --exchange caos.smoke.validation \
+          --management-url http://rabbitmq:15672 \
+          --expected-cluster-name "$$SMOKE_CLUSTER" \
+          --expected-commit "$$SMOKE_COMMIT" \
+          --live \
+          --confirm-isolated-vhost
+networks:
+  smoke_network:
+    internal: true
