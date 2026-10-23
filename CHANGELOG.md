@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.0-alpha.4](https://github.com/gjguidos/caos-api/compare/v0.1.0-alpha.3...v0.1.0-alpha.4) (2026-10-23)
+
+### 🐛 Bug Fixes
+
+* **runtime:** harden event signing, messaging and resource cleanup ([5d33821](https://github.com/gjguidos/caos-api/commit/5d33821e9b3d76f7bd0fa6bdcb246d0bca9c7b2c))
+
+### ✅ Tests
+
+* **events:** add isolated RabbitMQ smoke validation ([592d493](https://github.com/gjguidos/caos-api/commit/592d4936d1b81089f0f4565efd9848e72671df3f))
+
 ## [0.1.0-alpha.3](https://github.com/gjguidos/caos-api/compare/v0.1.0-alpha.2...v0.1.0-alpha.3) (2026-10-22)
 
 ### 🐛 Bug Fixes
