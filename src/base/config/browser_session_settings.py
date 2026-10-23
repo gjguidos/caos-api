@@ -12,7 +12,7 @@ class BrowserSessionSettings(AgentExposableSettingsMixin, BaseSettings):
     expose_to_agents: ClassVar[bool] = True
 
     callback_base_url: str = Field(
-        default="http://host.docker.internal:8000",
+        default="http://host.docker.internal:8001",
         description="Base URL reachable from Browser Runner back to AgentVerse API.",
     )
 
@@ -30,7 +30,7 @@ class BrowserSessionSettings(AgentExposableSettingsMixin, BaseSettings):
     )
 
     api_base_url: str = Field(
-        default="http://api:8000/api/v1/browser-sessions",
+        default="http://api:8001/api/v1/browser-sessions",
         description=(
             "Base URL used by internal AgentVerse services/tools when calling "
             "the Browser Session API."

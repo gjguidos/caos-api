@@ -11,7 +11,7 @@ if __name__ == "__main__":
     uvicorn.run(
         "src.main:app",
         host="0.0.0.0",
-        port=8000,
+        port=8001,
         reload=is_local_development(),
         log_config=None,  # Use our own logging config
     )

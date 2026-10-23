@@ -9,7 +9,7 @@ services:
         APP_CHANNEL: "${APP_CHANNEL:-development}"
     container_name: caos-api
     ports:
-      - "8000:8000"
+      - "8001:8001"
     volumes:
       - ./logs:/app/logs
       - ./src:/app/src

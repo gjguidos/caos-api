@@ -39,6 +39,6 @@ RUN uv pip install --system -e ".[test]"
 
 RUN chmod +x entrypoint.py
 
-EXPOSE 8000
+EXPOSE 8001
 
 CMD ["python", "entrypoint.py"]

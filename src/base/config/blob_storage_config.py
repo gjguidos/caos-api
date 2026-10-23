@@ -43,10 +43,10 @@ class BlobStorageConfig(BaseSettings):
         ),
     )
     blob_storage_local_base_url: str = Field(
-        default="http://agentverse:8000",
+        default="http://agentverse:8001",
         description=(
             "Base URL used to construct local file serve URLs (dev only). "
-            "Set to http://localhost:8000 when running outside Docker."
+            "Set to http://localhost:8001 when running outside Docker."
         ),
     )
 

@@ -195,7 +195,7 @@ Example using curl:
 
 ```bash
 curl -H "Authorization: Bearer <your-azure-ad-token>" \
-     http://localhost:8000/protected-endpoint
+     http://localhost:8001/protected-endpoint
 ```
 
 ## Troubleshooting

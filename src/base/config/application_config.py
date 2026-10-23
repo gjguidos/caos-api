@@ -13,4 +13,4 @@ class ApplicationConfig(BaseSettings):
     application_owner: str = "Team"
     application_owner_email: str = "team@example.com"
     environment: str = "development"
-    port: int = 8000
+    port: int = 8001
