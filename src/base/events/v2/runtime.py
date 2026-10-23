@@ -45,6 +45,8 @@ class CognitiveEventRuntime:
     """
 
     def __init__(self, messaging: EventMessaging, registry: CognitiveEventRegistry, policy: CognitiveEventPolicy, *, signing_key: bytes, exchange: str = "caos.events.v2") -> None:
+        if not isinstance(signing_key, bytes):
+            raise TypeError("signing_key must be bytes")
         if len(signing_key) < 32:
             raise ValueError("signing_key must be >= 32 bytes and sourced from secret configuration")
         self._messaging = messaging
@@ -102,13 +104,21 @@ class CognitiveEventRuntime:
                 registration_id = await self._messaging.subscribe(sub.queue_name, _handle)
                 self._registrations.append(registration_id)
         except BaseException:
-            await self.stop()
+            try:
+                await self.stop()
+            except BaseException:
+                logger.exception("Failed rolling back cognitive event runtime startup")
             raise
 
     async def stop(self) -> None:
-        for registration_id in reversed(self._registrations):
+        errors: list[BaseException] = []
+        for registration_id in reversed(tuple(self._registrations)):
             try:
                 await self._messaging.stop_consuming(registration_id)
-            except Exception:
+            except BaseException as error:
+                errors.append(error)
                 logger.exception("Failed stopping consumer %s", registration_id)
-        self._registrations.clear()
+            else:
+                self._registrations.remove(registration_id)
+        if errors:
+            raise errors[0]

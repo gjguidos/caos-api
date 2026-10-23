@@ -61,19 +61,25 @@ class RabbitMQClient:
                 await self.consumer_channel.ready()
                 return
 
-            if self.connection is not None and not self.connection.is_closed:
-                await self.connection.close()
-
-            self.connection = await aio_pika.connect_robust(
-                self.url,
-                timeout=self.timeout,
-            )
-            self.publish_channel = await self.connection.channel(
-                publisher_confirms=True,
-                on_return_raises=True,
-            )
-            self.consumer_channel = await self.connection.channel()
-            await self.consumer_channel.set_qos(prefetch_count=self.prefetch_count)
+            # Do not overwrite handles left by an interrupted connection attempt.
+            cleanup_errors = await self._close_resources()
+            if cleanup_errors:
+                raise cleanup_errors[0]
+            try:
+                self.connection = await aio_pika.connect_robust(
+                    self.url,
+                    timeout=self.timeout,
+                )
+                self.publish_channel = await self.connection.channel(
+                    publisher_confirms=True,
+                    on_return_raises=True,
+                )
+                self.consumer_channel = await self.connection.channel()
+                await self.consumer_channel.set_qos(prefetch_count=self.prefetch_count)
+            except BaseException:
+                # Rollback must not replace the original connection/cancellation error.
+                await self._close_resources()
+                raise
             logger.info("RabbitMQ client connected")
 
     async def _ensure_connected(self) -> None:
@@ -239,15 +245,21 @@ class RabbitMQClient:
     async def stop_consuming(self, registration_id: str | None = None) -> None:
         """Cancel one or all managed consumers."""
         ids = [registration_id] if registration_id is not None else list(self._consumers)
+        errors: list[BaseException] = []
         for key in ids:
-            entry = self._consumers.pop(key, None)
+            entry = self._consumers.get(key)
             if entry is None:
                 continue
             queue, consumer_tag = entry
             try:
                 await queue.cancel(consumer_tag)
-            except Exception:
+            except BaseException as error:
+                errors.append(error)
                 logger.exception("Failed to cancel RabbitMQ consumer %s", key)
+            else:
+                self._consumers.pop(key, None)
+        if errors:
+            raise errors[0]
 
     async def purge_queue(self, queue_name: str) -> None:
         queue = await self.declare_queue(queue_name)
@@ -261,14 +273,38 @@ class RabbitMQClient:
         await self.stop()
 
     async def stop(self) -> None:
-        if self._closing:
-            return
         self._closing = True
-        await self.stop_consuming()
-        if self.consumer_channel is not None and not self.consumer_channel.is_closed:
-            await self.consumer_channel.close()
-        if self.publish_channel is not None and not self.publish_channel.is_closed:
-            await self.publish_channel.close()
-        if self.connection is not None and not self.connection.is_closed:
-            await self.connection.close()
+        # Serialize with connect(), but allow retries of unfinished shutdown.
+        async with self._lock:
+            errors: list[BaseException] = []
+            try:
+                await self.stop_consuming()
+            except BaseException as error:
+                errors.append(error)
+                logger.exception("Failed stopping RabbitMQ consumers")
+            errors.extend(await self._close_resources())
+            if errors:
+                raise errors[0]
         logger.info("RabbitMQ client stopped")
+
+    async def _close_resources(self) -> list[BaseException]:
+        """Attempt every close; retain failed handles unless their connection closes."""
+        errors: list[BaseException] = []
+        for name in ("consumer_channel", "publish_channel", "connection"):
+            resource = getattr(self, name)
+            if resource is None:
+                continue
+            try:
+                if not resource.is_closed:
+                    await resource.close()
+            except BaseException as error:
+                errors.append(error)
+                logger.exception("Failed closing RabbitMQ %s", name)
+            else:
+                setattr(self, name, None)
+                if name == "connection":
+                    # Closing the connection also disposes its channels/consumers.
+                    self.consumer_channel = None
+                    self.publish_channel = None
+                    self._consumers.clear()
+        return errors

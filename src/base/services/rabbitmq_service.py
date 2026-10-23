@@ -1,4 +1,3 @@
-
 import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -34,12 +33,17 @@ class RabbitMQService:
         routing_key: str,
         message: dict[str, Any],
         correlation_id: str | None = None,
+        *,
+        message_id: str | None = None,
+        headers: dict[str, Any] | None = None,
     ) -> None:
         await self.repository.publish_event(
             exchange_name=exchange_name,
             routing_key=routing_key,
             message=message,
             correlation_id=correlation_id,
+            message_id=message_id,
+            headers=headers,
         )
 
     async def setup_queue(self, queue_name: str) -> None:
@@ -69,6 +73,9 @@ class RabbitMQService:
             queue_name=queue_name,
             on_message_callback=handler,
         )
+
+    async def stop_consuming(self, registration_id: str | None = None) -> None:
+        await self.repository.stop_consuming(registration_id)
 
     async def stop(self) -> None:
         await self.repository.close_connection()

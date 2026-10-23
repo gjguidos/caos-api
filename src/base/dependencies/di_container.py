@@ -62,7 +62,7 @@ class Container(containers.DeclarativeContainer):
         messaging=messaging,
         config={
             "signing_key": (
-                settings.cognitive_event.signing_key.get_secret_value()
+                settings.cognitive_event.signing_key.get_secret_value().encode("utf-8")
             ),
         },
     )

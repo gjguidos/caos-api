@@ -3,6 +3,7 @@ Lifespan context manager for FastAPI application.
 """
 
 import logging
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AsyncExitStack, asynccontextmanager
 
 from dependency_injector import providers
@@ -22,16 +23,47 @@ logger = logging.getLogger("lifespan")
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Own cleanup before startup, preserving the original failure if teardown fails."""
+    cleanups: dict[str, Callable[[], Awaitable[None]]] = {}
+    failed = False
+    try:
+        async with _startup_lifespan(app, cleanups):
+            yield
+    except BaseException:
+        failed = True
+        raise
+    finally:
+        cleanup_errors: list[BaseException] = []
+        # Quiesce producers/consumers before closing shared infrastructure.
+        for name in ("supervisor", "runtime", "rabbitmq", "executors", "mongo", "redis", "splunk"):
+            cleanup = cleanups.get(name)
+            if cleanup is None:
+                continue
+            try:
+                await cleanup()
+            except BaseException as error:
+                cleanup_errors.append(error)
+                logger.exception("Failed cleaning up %s", name)
+        if cleanup_errors and not failed:
+            raise cleanup_errors[0]
+
+
+@asynccontextmanager
+async def _startup_lifespan(
+    app: FastAPI, cleanups: dict[str, Callable[[], Awaitable[None]]]
+) -> AsyncIterator[None]:
     """
     Lifespan context manager for FastAPI application.
     Handles startup and shutdown events.
     """
     # Start Splunk handler async worker (if configured)
     if LoggingConfig.splunk_handler:
+        cleanups["splunk"] = LoggingConfig.splunk_handler.stop
         await LoggingConfig.splunk_handler.start()
         logger.info("Splunk HEC handler started.")
 
+    cleanups["executors"] = cpu_executor_registry.aclose_all
     logger.info(
         "Registered CPU executors: %s",
         cpu_executor_registry.count(),
@@ -42,33 +74,29 @@ async def lifespan(app: FastAPI):
     # Get Redis instance from dependency injection container
     container = app.container
     stack = AsyncExitStack()
-    redis_client = await stack.enter_async_context(
-        container.redis.redis_client()
-    )
+    cleanups["redis"] = stack.aclose
+    redis_client = await stack.enter_async_context(container.redis.redis_client())
 
-    container.redis.redis_client.override(
-        providers.Object(redis_client)
-    )
+    container.redis.redis_client.override(providers.Object(redis_client))
 
     redis_repo = container.redis.redis_repository()
 
     rabbitmq = app.container.messaging.rabbitmq_client()
+    cleanups["rabbitmq"] = rabbitmq.stop
 
     await rabbitmq.connect()
 
     runtime = container.cognitive_event.event_runtime()
+    cleanups["runtime"] = runtime.stop
 
-    container.events.redis_repository.override(
-        providers.Object(redis_repo)
-    )
+    container.events.redis_repository.override(providers.Object(redis_repo))
 
-    container.operations.event_publisher.override(
-        container.events.domain_event_publisher
-    )
+    container.operations.event_publisher.override(container.events.domain_event_publisher)
 
     queue_service = container.redis.queue_service()
 
     job_supervisor = container.operations.job_supervisor()
+    cleanups["supervisor"] = job_supervisor.close
 
     app.state.job_supervisor = job_supervisor
 
@@ -79,6 +107,7 @@ async def lifespan(app: FastAPI):
 
     # Initialize MongoDB connection
     mongo_client = container.database.mongo_client()
+    cleanups["mongo"] = mongo_client.disconnect
 
     try:
         # Test Redis connection
@@ -136,9 +165,7 @@ async def lifespan(app: FastAPI):
             "communication": {
                 "socketRedisBridge": container.redis.socket_redis_bridge_service(),
             },
-            "messaging": {
-                "rabbitmq": container.messaging.rabbitmq_service()
-            },
+            "messaging": {"rabbitmq": container.messaging.rabbitmq_service()},
             "knowledge_db": knowledge_db,
         }
 
@@ -180,32 +207,11 @@ async def lifespan(app: FastAPI):
                     logger.warning(
                         "[MCP] MCP Proxy integration is DISABLED (mcp_proxy_enabled=false)"
                     )
-        except Exception as e:
-            logger.error(f"[MCP] Failed to load MCP Proxy tools: {e}", exc_info=True)
+        except Exception:
+            logger.exception("[MCP] Failed to load MCP Proxy tools")
 
         yield
 
     except Exception as e:
-        logger.error(f"Error during startup: {str(e)}")
+        logger.error("Error during startup: %s", e)
         raise
-
-    finally:
-        # Gracefully stop job supervisor
-        await job_supervisor.close()
-        # Gracefully close all CPU executors
-        await cpu_executor_registry.aclose_all()
-        # Close Redis connection (Splunk handler cleanup handled by DI container)
-        await stack.aclose()
-
-        # Gracefully stop cognitive event runtime
-        await runtime.stop()
-        await rabbitmq.stop()
-
-        # Close MongoDB connection
-        await mongo_client.disconnect()
-        logger.info("MongoDB connection closed")
-
-        # Gracefully stop Splunk handler (flush remaining logs)
-        if LoggingConfig.splunk_handler:
-            logger.info("Stopping Splunk HEC handler...")
-            await LoggingConfig.splunk_handler.stop()
