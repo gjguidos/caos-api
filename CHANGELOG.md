@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.0-alpha.5](https://github.com/gjguidos/caos-api/compare/v0.1.0-alpha.4...v0.1.0-alpha.5) (2026-10-24)
+
+### 🐛 Bug Fixes
+
+* **test:** make NCSC smoke runner portable and resilient ([586b9ae](https://github.com/gjguidos/caos-api/commit/586b9ae26d018ddeb949523e194211a2478c52de))
+
+### ✅ Tests
+
+* **events:** add reproducible NCSC RabbitMQ smoke environment ([47e44ef](https://github.com/gjguidos/caos-api/commit/47e44efc7ba04ee254a870af28a90632d757a1d6))
+
 ## [0.1.0-alpha.4](https://github.com/gjguidos/caos-api/compare/v0.1.0-alpha.3...v0.1.0-alpha.4) (2026-10-23)
 
 ### 🐛 Bug Fixes
