@@ -6,7 +6,7 @@ import json
 import logging
 from typing import Any, Protocol
 
-from .contracts import EventEnvelope, EventContractError, EventPermissionError
+from .contracts import EventContractError, EventEnvelope, EventPermissionError
 from .policy import CognitiveEventPolicy, EventPrincipal
 from .registry import CognitiveEventRegistry, Subscription
 

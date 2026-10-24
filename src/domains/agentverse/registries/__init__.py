@@ -32,6 +32,7 @@ from src.domains.agentverse.registries.registries import (
     personality_registry_instance,
     role_registry_instance,
     rulepack_registry_instance,
+    synaptic_registry_instance,
     tool_registry_instance,
     tool_runtime_dependency_registry_instance,
     workflow_registry_instance,
@@ -43,8 +44,9 @@ __all__ = [
     "get_registry",
     "personality_registry_instance",
     "tool_registry_instance",
-    "tool_runtime_dependency_registry_instance",     
+    "tool_runtime_dependency_registry_instance",
     "role_registry_instance",
     "rulepack_registry_instance",
+    "synaptic_registry_instance",
     "workflow_registry_instance",
 ]

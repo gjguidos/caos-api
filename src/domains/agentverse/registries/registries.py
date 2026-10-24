@@ -9,6 +9,9 @@ from src.domains.agentverse.registries.role_registry import RoleRegistry
 from src.domains.agentverse.registries.rulepack_registry import (
     RulePackRegistry,
 )
+from src.domains.agentverse.registries.synaptic_registry import (
+    SynapticRegistry,
+)
 from src.domains.agentverse.registries.tool_registry import ToolRegistry
 from src.domains.agentverse.registries.tool_runtime_dependency_registry import (
     ToolRuntimeDependencyRegistry,
@@ -26,6 +29,7 @@ workflow_registry_instance = WorkflowRegistry()
 tool_runtime_dependency_registry_instance = (
     ToolRuntimeDependencyRegistry()
 )
+synaptic_registry_instance = SynapticRegistry()
 
 registries: dict[str, Registry] = {
     "agent": agent_registry_instance,
@@ -36,5 +40,6 @@ registries: dict[str, Registry] = {
         tool_runtime_dependency_registry_instance
     ),
     "rulepack": rulepack_registry_instance,
+    "synaptic": synaptic_registry_instance,
     "workflow": workflow_registry_instance,
 }

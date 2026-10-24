@@ -81,6 +81,37 @@ Important principles:
 - LLM reasoning is optional.
 - Preserve correlation, traceability, and operation identity across execution boundaries.
 
+### Domain ownership and AOSA registries
+
+- Keep `src/base` generic and independent of AgentVerse; place NCSC PBX and its synaptic bindings under `src/domains/agentverse/`.
+- Before creating a registry, inspect `src/domains/agentverse/registries/base.py`, the relevant specialized registry, `registries/registries.py`, and `registries/utils/register_registry.py`.
+- Prefer the established `Registry[T]` conventions (decorator registration, metadata, lookup, catalog and initialization), without forcing inappropriate key or replacement semantics onto a new registry.
+- Generic registry keys are canonicalized. NCSC signals such as `personality.infuse`, `context.delta.build`, and `prompt.build` are **exact dotted addresses**; preserve them without collisions.
+- The generic registry supports last-write-wins registration for module reloads. Security-sensitive synaptic bindings must reject conflicting providers and use a controlled registration lifecycle.
+- Distinguish registries by ownership: AOSA component registries describe agents/tools/workflows; `CognitiveEventRegistry` defines broker event contracts and subscriptions; a proposed `SynapticRegistry` binds addressable capability handlers. Do not duplicate event contracts or message brokers.
+
+### NCSC PBX evolution (design target, not assumed implemented)
+
+NCSC (Neural Cognitive Synapse Center) PBX is the AgentVerse-domain communication and capability exchange built **on** the existing `src/base/events/v2/` event infrastructure. That infrastructure already defines event contracts, policy, authorized clients, signed envelopes and broker runtime; preserve it.
+
+- NCSC PBX resolves, authorizes, routes and correlates calls; it does **not** decide cognitive recipes or replace a workflow engine.
+- Use declarative capability bindings/decorators and thin adapters; avoid a new message bus, duplicate ToolManager or mandatory UniversalOrchestrator.
+- Prefer authorized local calls for in-process deterministic operations; use RabbitMQ for appropriate distributed events. Both paths must enforce equivalent security boundaries.
+- Keep trusted caller identity, tenant, scope, target and correlation/causation across nested calls. Registration or an event name is **not** a permission grant. Protect against recursive loops, cross-tenant routing and privilege escalation.
+- Treat `personality.infuse`, `context.delta.build`, `prompt.build`, and `agent.action.chat` as **proposed capability identifiers**, not implemented APIs unless verified in code.
+- Tools may expose cognitive or deterministic operations. Existing LLM-oriented tools are context providers; preserve context merging, personality/role/rule-pack composition and model execution semantics while migrating.
+- An agent's approved tool-event grants are distinct from the tool provider's configuration and availability. Do not trust client-supplied grants or instantiate every tool inside an agent by default in new designs.
+
+### Agent construction and V2 migration
+
+- Preserve the AOSA composition model: **type → role → personality → rule-pack → authorized tool events**.
+- `AgentService` handles persisted definitions/access and runtime retrieval; `AgentFactory` builds configured agent instances. Inspect their actual interfaces before proposing `AgentFactoryV2`.
+- New `ChatAgentV2` or factory V2 paths may coexist with V1. Reuse construction, registries, DI, configuration and cognitive resources rather than copy existing logic.
+- Existing `ChatAgent.respond()` and the LLM invoker depend on the legacy UniversalOrchestrator/context execution path. Wrapping it in PBX does not remove that dependency.
+- Preserve WebSocket authentication, per-session runtime ownership, lifecycle, turn serialization and existing client syntax such as `@write --topic=cat` while migrating behind adapters.
+- Separate external WebSocket message routing, PBX capability dispatch, agent construction and cognitive execution; do not turn NCSC into another centralized orchestrator.
+- JOSHUA is the encompassing operative entity in the CAOS design, not a required `BaseAgent` subclass. Individual AOSA agents are composed and activated inside that environment. Mythological governors/Genesis concepts should remain domain-level composition logic, not hardcoded base infrastructure.
+
 ### Existing and new systems
 
 CAOS is being developed using infrastructure and architectural experience from AgentVerse/IAOS.
@@ -178,6 +209,8 @@ For codebase investigation, use the CAOS research agent.
 
 For release preparation, verification, or promotion, use the CAOS release skill.
 
+For registry changes, inspect existing registry implementations and tests first; a dedicated Registry Skill is planned but should not be assumed present.
+
 ## Important references
 
 - `README.md` — CAOS vision and architecture
@@ -186,6 +219,8 @@ For release preparation, verification, or promotion, use the CAOS release skill.
 - `src/base/system/initialize_app.py` — application initialization
 - `src/base/lifespan/` — application resource lifecycle
 - `src/base/config/` — settings
+- `src/domains/agentverse/registries/` — AOSA registry conventions and instances
+- `src/base/events/v2/` — existing event contracts, policy, registry and runtime
 - `docs/RELEASE_WORKFLOW.md` — release process
 - `.github/workflows/release.yml` — release automation
 
