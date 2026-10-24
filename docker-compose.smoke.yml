@@ -11,10 +11,8 @@ services:
       - smoke_network
     healthcheck:
       test:
-        - CMD
-        - rabbitmq-diagnostics
-        - -q
-        - ping
+        - CMD-SHELL
+        - 'rabbitmq-diagnostics -q ping && rabbitmq-diagnostics -q check_port_listener 15672'
       interval: 5s
       timeout: 5s
       retries: 20
@@ -35,7 +33,7 @@ services:
     command: ["python", "-B", "/smoke/provision.py"]
   smoke:
     build:
-      context: .
+      context: ${SMOKE_BUILD_CONTEXT:?SMOKE_BUILD_CONTEXT is required}
       dockerfile: docker/smoke/Dockerfile
       args:
         APP_REVISION: ${SMOKE_COMMIT:?SMOKE_COMMIT is required}

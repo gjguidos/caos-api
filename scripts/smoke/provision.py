@@ -1,11 +1,11 @@
 
 #!/usr/bin/env python3
 """Provision the disposable CAOS NCSC RabbitMQ smoke broker."""
-
 import base64
 import json
 import os
-from urllib.error import HTTPError
+import time
+from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
@@ -23,26 +23,21 @@ RESOURCE_PATTERN = (
     r"caos\.smoke\.[0-9a-f]{32}\.(runtime|metadata))$"
 )
 
-
 def require_env(name: str) -> str:
     value = os.environ.get(name)
     if not value:
         raise RuntimeError(f"Missing required environment variable: {name}")
     return value
 
-
 ADMIN_USER = require_env("SMOKE_ADMIN_USER")
 ADMIN_PASSWORD = require_env("SMOKE_ADMIN_PASSWORD")
-
 
 def request(method: str, path: str, payload: dict) -> None:
     url = f"{API}{path}"
     body = json.dumps(payload).encode("utf-8")
-
     credentials = base64.b64encode(
-        f"{ADMIN_USER}:{ADMIN_PASSWORD}".encode("utf-8")
+        f"{ADMIN_USER}:{ADMIN_PASSWORD}".encode()
     ).decode("ascii")
-
     req = Request(
         url,
         data=body,
@@ -52,7 +47,6 @@ def request(method: str, path: str, payload: dict) -> None:
             "Content-Type": "application/json",
         },
     )
-
     try:
         with urlopen(req, timeout=10) as response:
             if response.status not in (200, 201, 204):
@@ -64,14 +58,14 @@ def request(method: str, path: str, payload: dict) -> None:
             f"RabbitMQ provisioning failed for {path}: HTTP {error.code}"
         ) from None
 
-
 def put(path: str, payload: dict) -> None:
     request("PUT", path, payload)
-
 
 def main() -> None:
     amqp_password = require_env("RABBITMQ_PASSWORD")
     monitor_password = require_env("CAOS_SMOKE_MANAGEMENT_PASSWORD")
+
+    wait_for_management_api()
 
     vhost = quote(VHOST, safe="")
     exchange = quote(EXCHANGE, safe="")
@@ -127,6 +121,18 @@ def main() -> None:
 
     print("PASS: NCSC RabbitMQ provisioning completed", flush=True)
 
+def wait_for_management_api(timeout_seconds: float = 60.0) -> None:
+    deadline = time.monotonic() + timeout_seconds
+
+    while time.monotonic() < deadline:
+        try:
+            request("GET", "/overview", {})
+            print("  RabbitMQ Management API ready", flush=True)
+            return
+        except (URLError, RuntimeError):
+            time.sleep(1)
+
+    raise RuntimeError("RabbitMQ Management API did not become ready")
 
 if __name__ == "__main__":
     main()
