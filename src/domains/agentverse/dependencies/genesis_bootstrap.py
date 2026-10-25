@@ -83,7 +83,26 @@ def configure_genesis_transport(app: FastAPI, bindings: GenesisSecurityBindings)
     app.state.genesis_sessions = sessions
 
     async def start() -> None:
-        app.container.agentverse.utu_authority()
+        from src.domains.agentverse.registries import synaptic_registry_instance
+        from src.domains.agentverse.services.cognitive_response_v2 import (
+            SIGNAL,
+            CognitiveResponseV2,
+        )
+
+        av = app.container.agentverse
+        av.utu_authority()
+        if any(
+            "chat.response" in grant.invoke for grant in bindings.authorization._grants.values()
+        ):
+            responder = CognitiveResponseV2(
+                definitions=av.db_service(),
+                authority=av.utu_authority(),
+                history=av.client_event_dispatcher_v2().history,
+                client_factory=lambda: getattr(app.state, "client_factory", None),
+            )
+            synaptic_registry_instance.subscribe(SIGNAL, provider="cognitive.chat")(
+                responder.handle
+            )
         if os.getenv("GENESIS_LOCAL_ENABLED") == "true":
             from src.domains.agentverse.dependencies.genesis_local import initialize_local
 

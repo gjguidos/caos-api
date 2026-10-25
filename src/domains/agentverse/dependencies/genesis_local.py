@@ -38,10 +38,11 @@ async def initialize_local(container: Container) -> None:
     if approval.owner_user_id != OWNER or not approval.enabled:
         raise ValueError("Local Adam approval identity mismatch")
     if (
-        policy._grants[(TENANT, ADAM)].invoke != frozenset({"chat.context"})
+        policy._grants[(TENANT, ADAM)].invoke
+        not in (frozenset({"chat.context"}), frozenset({"chat.context", "chat.response"}))
         or policy._trusted_lines
     ):
-        raise ValueError("Local Adam requires only chat.context and no trusted lines")
+        raise ValueError("Local Adam requires explicit chat capabilities and no trusted lines")
     definitions = av.db_service()
     definition = await definitions.find_by_id(ADAM)
     if definition is None:

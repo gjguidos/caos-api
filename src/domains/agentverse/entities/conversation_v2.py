@@ -29,6 +29,7 @@ class ClientEventV2(BaseModel):
     conversation_id: Identifier
     event_id: Identifier
     type: Literal["chat.message"]
+    response_mode: Literal["context", "llm"] = "context"
     agent_ids: tuple[Identifier, ...] = Field(min_length=1, max_length=4)
     message: str = Field(min_length=1, max_length=8192)
 

@@ -15,6 +15,7 @@ from src.domains.agentverse.entities.history_v2 import ConversationMessageV2
 from src.domains.agentverse.repositories.conversation_v2 import ConversationRepositoryV2
 from src.domains.agentverse.runtime.instances_v2 import AgentInstanceKey, AgentInstanceRegistryV2
 from src.domains.agentverse.security.utu import UTUAuthority
+from src.domains.agentverse.services.cognitive_response_v2 import CognitiveResponseUnavailable
 from src.domains.agentverse.services.conversation_history_v2 import ConversationHistoryV2
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,15 @@ class ClientEventDispatcherV2:
             conversation=conversation,
             agent_ids=event.agent_ids,
         )
+        if event.response_mode == "llm":
+            for agent_id in event.agent_ids:
+                principal = await self.authority.resolve_agent_principal(
+                    AgentInstanceKey(
+                        session.tenant_id, session.user_id, agent_id, session.session_id
+                    )
+                )
+                if "chat.response" not in self.authority.grants_for(principal).invoke:
+                    raise EventPermissionError("LLM response grant denied")
 
     async def dispatch(self, session: VerifiedAgentSession, event: ClientEventV2) -> dict[str, Any]:
         await self.authorize(session, event)
@@ -79,7 +89,7 @@ class ClientEventDispatcherV2:
         try:
             # Fixed capability and bounded targets; client cannot choose arbitrary signals.
             results = []
-            async with asyncio.timeout(10):
+            async with asyncio.timeout(60 if event.response_mode == "llm" else 10):
                 for agent_id in event.agent_ids:
                     await self.authorize(session, event)
                     key = AgentInstanceKey(
@@ -90,6 +100,15 @@ class ClientEventDispatcherV2:
                         runtime = self.instances.get(key)
                         if runtime is None or not runtime.is_active:
                             raise EventPermissionError("Target runtime unavailable")
+                        if event.response_mode == "llm":
+                            result = await runtime.ncsc.request(
+                                "chat.response",
+                                {"text": event.message, "conversation_id": event.conversation_id},
+                                correlation_id=event.event_id,
+                                causation_id=event.event_id,
+                            )
+                            results.append(result)
+                            continue
                         history = await self.history.project(
                             session,
                             event.conversation_id,
@@ -104,8 +123,12 @@ class ClientEventDispatcherV2:
                         )
                     results.append({"agent_id": agent_id, "context": context})
                 await self.authorize(session, event)
-            response = response_for(event, "chat.context", results=results)
-            if response["type"] == "chat.context":
+            response = response_for(
+                event,
+                "chat.response" if event.response_mode == "llm" else "chat.context",
+                results=results,
+            )
+            if response["type"] in {"chat.context", "chat.response"}:
                 document = await self.history.authorize(
                     session, event.conversation_id, event.agent_ids
                 )
@@ -131,9 +154,13 @@ class ClientEventDispatcherV2:
                         ConversationMessageV2(
                             id=identity + "-" + str(i),
                             participant_id=result["agent_id"],
-                            kind="capability_contribution",
-                            capability="chat.context",
-                            content=json.dumps(result["context"], ensure_ascii=False),
+                            kind="agent_response"
+                            if event.response_mode == "llm"
+                            else "capability_contribution",
+                            capability=None if event.response_mode == "llm" else "chat.context",
+                            content=result["response"]["content"]
+                            if event.response_mode == "llm"
+                            else json.dumps(result["context"], ensure_ascii=False),
                             visible_user_ids=(session.user_id,),
                             **shared,
                         )
@@ -150,12 +177,16 @@ class ClientEventDispatcherV2:
             raise
         except EventPermissionError:
             response = response_for(event, "event.error", code="denied")
+        except CognitiveResponseUnavailable as exc:
+            response = response_for(event, "event.error", code=exc.code)
         except TimeoutError:
             response = response_for(event, "event.error", code="timeout")
-        except Exception:
-            logger.exception("V2 deterministic context turn failed")
+        except Exception:  # noqa: BLE001 - safe transport boundary
+            logger.error("V2 conversation turn failed")
             response = response_for(event, "event.error", code="unavailable")
         try:
+            if messages:
+                await self.authorize(session, event)
             await self.conversations.finish(
                 session.tenant_id,
                 session.user_id,

@@ -2,7 +2,7 @@
 
 Uses the same configured repository as durable Genesis sessions. No TTL or
 journal eviction: a crashed in-progress turn stays fenced for trusted recovery.
-This deliberately supports deterministic calls only, not retriable side effects.
+In-flight calls are never automatically retried, including model inference.
 """
 
 import asyncio
@@ -94,7 +94,10 @@ class ConversationRepositoryV2:
     async def begin(self, tenant: str, user: str, event: ClientEventV2) -> tuple[str, Any]:
         # Per-user event namespace prevents another participant replaying private results.
         identity = json.dumps([user, event.event_id])
-        digest = hashlib.sha256(event.model_dump_json().encode()).hexdigest()
+        serialized = event.model_dump_json(
+            exclude={"response_mode"} if event.response_mode == "context" else set()
+        )
+        digest = hashlib.sha256(serialized.encode()).hexdigest()
         result = await self._eval(
             _BEGIN,
             self._keys(tenant, event.conversation_id)[:3],

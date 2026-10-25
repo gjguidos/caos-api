@@ -11,7 +11,10 @@ from uuid import uuid4
 
 from src.base.events.v2.contracts import EventPermissionError
 from src.base.events.v2.policy import EventPrincipal
-from src.domains.agentverse.agents.lifecycle.agent_principal_resolver import AgentPrincipalResolver
+from src.domains.agentverse.agents.lifecycle.agent_principal_resolver import (
+    AgentPrincipalResolver,
+    VerifiedAgentSession,
+)
 from src.domains.agentverse.entities.conversation_v2 import ConversationV2
 from src.domains.agentverse.ncsc.authorization import SynapticAuthorization
 from src.domains.agentverse.ncsc.models import SynapticExecutionContext, SynapticGrants
@@ -146,6 +149,22 @@ class UTUAuthority:
             await self._resolver.verify_lifecycle_caller(key)
         else:
             raise EventPermissionError("Unknown lifecycle operation")
+
+    async def execution_session(self, principal: AuthorizedAgentPrincipal) -> VerifiedAgentSession:
+        """Return the live session bound to a verified agent permit."""
+        await self.check_permit(principal.permit)
+        key = principal.permit.key
+        if (principal.tenant_id, principal.agent_id) != (key.tenant_id, key.agent_id):
+            raise EventPermissionError("Execution principal mismatch")
+        session = await self._resolver._sessions.get_session(key.session_id)
+        if (
+            session is None
+            or not session.active
+            or (session.tenant_id, session.user_id, session.session_id)
+            != (key.tenant_id, key.user_id, key.session_id)
+        ):
+            raise EventPermissionError("Execution session denied")
+        return session
 
     def grants_for(self, principal: EventPrincipal) -> SynapticGrants:
         return self._authorization.grants_for(principal)

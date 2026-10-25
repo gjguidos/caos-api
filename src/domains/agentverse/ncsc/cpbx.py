@@ -67,6 +67,11 @@ class AuthorizedSynapticClient:
         self._exchange = exchange
         self._context = context
 
+    @property
+    def execution_permit(self) -> Any:
+        """Immutable UTU permit for trusted capability adapters, never payload identity."""
+        return self._context.permit
+
     def revoke(self) -> None:
         self._context.gate.revoke()
 
