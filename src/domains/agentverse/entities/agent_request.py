@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field, StringConstraints, field_validator, model_validator
 
@@ -92,6 +92,13 @@ class AgentRequest(BaseModel):
         default_factory=list,
         description="Explicit list of rule pack IDs to attach to this agent",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_runtime_metadata(cls, value: Any) -> Any:
+        if isinstance(value, dict) and {"runtime_version", "genesis_local_seed"} & value.keys():
+            raise ValueError("Runtime version and seed provenance are managed by the server")
+        return value
 
     model_config = {"extra": "allow", "populate_by_name": True}
 

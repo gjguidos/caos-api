@@ -11,6 +11,7 @@ import hashlib
 import json
 import logging
 import math
+import secrets
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -115,10 +116,10 @@ class RedisAgentSessionAuthority:
     def _field(session_id: str) -> str:
         return hashlib.sha256(session_id.encode()).hexdigest()
 
-    async def _eval(self, script: str, args: list[Any]) -> Any:
+    async def _eval(self, script: str, args: list[Any], *, keys: list[str] | None = None) -> Any:
         try:
             async with asyncio.timeout(self._timeout):
-                return await self._repo.eval(script, keys=self._keys, args=args)
+                return await self._repo.eval(script, keys=keys or self._keys, args=args)
         except Exception as exc:
             raise EventPermissionError("Genesis session authority unavailable") from exc
 
@@ -260,6 +261,57 @@ class RedisAgentSessionAuthority:
             frozenset(record["agents"]),
             True,
         )
+
+    async def issue_ws_ticket(self) -> str:
+        """Exchange the bound server bearer for a 30-second, single-use credential.
+
+        Browser transport sends this in its first frame, never in a URL. Only
+        the verified caller binding is retained; the bearer is never stored.
+        """
+        binding = self._caller.get()
+        if binding is None or not binding.active:
+            raise EventPermissionError("Authenticated session context required")
+        await self.get_session(binding.caller.session)
+        ticket = secrets.token_urlsafe(32)
+        key = self._keys[0] + ":ticket:" + self._field(ticket)
+        caller = binding.caller
+        raw = json.dumps(
+            {
+                "tenant": caller.tenant,
+                "user": caller.user,
+                "session": caller.session,
+                "fingerprint": caller.fingerprint,
+                "expires": caller.expires,
+            }
+        )
+        await self._eval("return redis.call('SET', KEYS[1], ARGV[1], 'EX', 30)", [raw], keys=[key])
+        return ticket
+
+    @asynccontextmanager
+    async def authenticated_ticket(self, ticket: str) -> AsyncIterator[VerifiedAgentSession]:
+        if not isinstance(ticket, str) or not 32 <= len(ticket) <= 128:
+            raise EventPermissionError("Invalid WebSocket ticket")
+        key = self._keys[0] + ":ticket:" + self._field(ticket)
+        raw = await self._eval(
+            """
+local value = redis.call('GET', KEYS[1])
+redis.call('DEL', KEYS[1])
+return value
+""",
+            [],
+            keys=[key],
+        )
+        if not raw:
+            raise EventPermissionError("WebSocket ticket expired or consumed")
+        caller = _Caller(**json.loads(raw))
+        await self._bound_record(caller)
+        binding = _Binding(caller)
+        marker = self._caller.set(binding)
+        try:
+            yield await self.get_session(caller.session)
+        finally:
+            binding.active = False
+            self._caller.reset(marker)
 
     async def check_execution_session(self, key: AgentInstanceKey) -> None:
         """UTU permit hook; no HTTP context required for existing runtimes."""

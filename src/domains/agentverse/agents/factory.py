@@ -35,6 +35,7 @@ from src.domains.agentverse.registries import tool_registry_instance as tool_reg
 from src.domains.agentverse.registries import (
     tool_runtime_dependency_registry_instance as tool_runtime_dependency_registry,
 )
+from src.domains.agentverse.runtime.compatibility import require_v1_runtime
 from src.domains.agentverse.tools.spec import AgentToolRef, ToolScope, ToolSpec
 from src.domains.agentverse.utils.canonicalize import canonicalize
 
@@ -404,6 +405,7 @@ class AgentFactory:
         user_id: str,
         socket_id: str,
     ) -> BaseAgent:
+        require_v1_runtime(db_agent)
         AGENTVERSE_LOGGER.info(
             LogDomain.EVANGELION_BAY,
             "[🏭 FACTORY][🚀 BUILD] runtime_build_start",

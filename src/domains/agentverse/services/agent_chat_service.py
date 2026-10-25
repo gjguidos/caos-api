@@ -28,6 +28,7 @@ from src.domains.agentverse.context.connection_context import ConnCtx
 from src.domains.agentverse.logging.logger_v1 import AGENTVERSE_LOGGER, LogDomain
 from src.domains.agentverse.registries.registries import tool_registry_instance
 from src.domains.agentverse.repositories.run_report_repository import RunReportRepository
+from src.domains.agentverse.runtime.compatibility import require_v1_runtime
 from src.domains.agentverse.runtime.instances import AgentInstanceRegistry
 from src.domains.agentverse.services.agent_service import AgentService
 from src.domains.agentverse.utils.canonicalize import canonicalize
@@ -321,6 +322,9 @@ class AgentChatService:
         user: User,
         tenant_id: str | None = None,
     ):
+        # Recheck persisted access/runtime even before returning a cached instance.
+        definition = await self.agent_service.get_agent(agent_id, user)
+        require_v1_runtime(definition)
         repo = av_cache.get_cache_repo(request)
         spawn_key = av_cache.agent_spawn_key(
             request,

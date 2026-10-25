@@ -33,6 +33,7 @@ from src.domains.agentverse.registries.registries import (
     synaptic_registry_instance,
     tool_registry_instance,
 )
+from src.domains.agentverse.repositories.conversation_v2 import ConversationRepositoryV2
 from src.domains.agentverse.repositories.run_report_repository import (
     RunReportRepository,
 )
@@ -46,6 +47,7 @@ from src.domains.agentverse.services.agent_chat_service import (
 )
 from src.domains.agentverse.services.agent_service import AgentService
 from src.domains.agentverse.services.audit_service import AuditService
+from src.domains.agentverse.services.client_event_dispatcher_v2 import ClientEventDispatcherV2
 from src.domains.agentverse.services.db_service import DBService
 from src.domains.agentverse.services.divine_orchestration_service import (
     DivineOrchestrationService,
@@ -276,6 +278,18 @@ class AgentverseContainer(containers.DeclarativeContainer):
         lifecycle=agent_lifecycle_service,
     )
 
+    conversation_repository_v2 = providers.Singleton(
+        ConversationRepositoryV2,
+        repository=redis_repository,
+    )
+    client_event_dispatcher_v2 = providers.Singleton(
+        ClientEventDispatcherV2,
+        conversations=conversation_repository_v2,
+        authority=utu_authority,
+        khepri=khepri,
+        instances=instance_registry_v2,
+    )
+
     divine_orchestration_service = providers.Factory(
         DivineOrchestrationService,
         agent_service=agent_service,
@@ -416,6 +430,8 @@ def extend_container(
     ns.agent_lifecycle_service = av.agent_lifecycle_service
     ns.khepri = av.khepri
     ns.anubis = av.anubis
+    ns.conversation_repository_v2 = av.conversation_repository_v2
+    ns.client_event_dispatcher_v2 = av.client_event_dispatcher_v2
 
     ns.agent_chat_service = av.agent_chat_service
     ns.audit_service = av.audit_service

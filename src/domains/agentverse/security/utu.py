@@ -12,6 +12,7 @@ from uuid import uuid4
 from src.base.events.v2.contracts import EventPermissionError
 from src.base.events.v2.policy import EventPrincipal
 from src.domains.agentverse.agents.lifecycle.agent_principal_resolver import AgentPrincipalResolver
+from src.domains.agentverse.entities.conversation_v2 import ConversationV2
 from src.domains.agentverse.ncsc.authorization import SynapticAuthorization
 from src.domains.agentverse.ncsc.models import SynapticExecutionContext, SynapticGrants
 from src.domains.agentverse.runtime.instances_v2 import AgentInstanceKey
@@ -148,6 +149,38 @@ class UTUAuthority:
 
     def grants_for(self, principal: EventPrincipal) -> SynapticGrants:
         return self._authorization.grants_for(principal)
+
+    async def authorize_conversation(
+        self,
+        *,
+        session_id: str,
+        conversation: ConversationV2,
+        agent_ids: tuple[str, ...] = (),
+    ) -> None:
+        """Participant lists narrow visibility/routing; they never grant execution."""
+        session = await self._resolver._sessions.get_session(session_id)
+        if (
+            session is None
+            or not session.active
+            or (
+                session.tenant_id != conversation.tenant_id
+                or session.user_id not in conversation.member_user_ids
+                or any(agent not in conversation.agent_ids for agent in agent_ids)
+            )
+        ):
+            raise EventPermissionError("Conversation access denied")
+        # Verify every target before any lifecycle or CPBX call (no partial fanout).
+        for agent in agent_ids:
+            principal = await self.resolve_agent_principal(
+                AgentInstanceKey(
+                    session.tenant_id,
+                    session.user_id,
+                    agent,
+                    session.session_id,
+                )
+            )
+            if "chat.context" not in self.grants_for(principal).invoke:
+                raise EventPermissionError("Conversation target capability denied")
 
     def require_invoke(self, *, context: SynapticExecutionContext, signal: str) -> None:
         self._authorization.require_invoke(context=context, signal=signal)

@@ -30,6 +30,7 @@ from src.domains.agentverse.exceptions import (
 from src.domains.agentverse.logging.logger_v1 import AGENTVERSE_LOGGER, LogDomain
 from src.domains.agentverse.registries import agent_registry_instance as agent_registry
 from src.domains.agentverse.registries import personality_registry_instance as personality_registry
+from src.domains.agentverse.runtime.compatibility import require_v1_runtime
 from src.domains.agentverse.security import agent_access
 from src.domains.agentverse.services.audit_service import AuditService
 from src.domains.agentverse.services.db_service import DBService
@@ -533,6 +534,7 @@ class AgentService:
         socket_id: str,
     ) -> BaseAgent:
         db_agent = await self.get_agent(agent_id, user)
+        require_v1_runtime(db_agent)
 
         AGENTVERSE_LOGGER.info(
             LogDomain.OPERATIONS_COMMANDER,

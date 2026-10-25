@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, StringConstraints
+from pydantic import BaseModel, Field, StringConstraints, model_validator
 
 from src.domains.agentverse.tools.spec import AgentToolRef
 
@@ -57,6 +57,13 @@ class AgentUpdateRequest(BaseModel):
     rule_pack_ids: list[str] | None = None
     collections: list[str] | None = None
     metadata: dict[str, Any] | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_runtime_metadata(cls, value: Any) -> Any:
+        if isinstance(value, dict) and {"runtime_version", "genesis_local_seed"} & value.keys():
+            raise ValueError("Runtime version and seed provenance are managed by the server")
+        return value
 
     model_config = {"extra": "allow", "populate_by_name": True}
 

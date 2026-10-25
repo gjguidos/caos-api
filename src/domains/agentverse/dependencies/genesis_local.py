@@ -46,6 +46,7 @@ async def initialize_local(container: Container) -> None:
     definition = await definitions.find_by_id(ADAM)
     if definition is None:
         document = Agent(
+            runtime_version="v2",
             id=ADAM,
             name="Adam",
             system_name="adam",
@@ -66,6 +67,24 @@ async def initialize_local(container: Container) -> None:
         await definitions.repository.create(document, definitions.AGENTS_COL)
     elif definition.get("creator") != OWNER or definition.get("tenant_id") != TENANT:
         raise ValueError("Existing Adam definition conflicts with local ownership")
+    elif definition.get("runtime_version") != "v2":
+        # Only this trusted bootstrap's historical seed may be backfilled.
+        # A matching name/id/provider or an approval alone is not provenance.
+        if "runtime_version" in definition or definition.get("genesis_local_seed") is not True:
+            raise ValueError("Existing Adam definition has no trusted V2 runtime provenance")
+        updated = await definitions.repository.update(
+            query={
+                "id": ADAM,
+                "creator": OWNER,
+                "tenant_id": TENANT,
+                "genesis_local_seed": True,
+                "runtime_version": {"$exists": False},
+            },
+            data={"runtime_version": "v2"},
+            collection_name=definitions.AGENTS_COL,
+        )
+        if not updated:
+            raise ValueError("Adam runtime migration conflicted; retry bootstrap")
     store = av.utu_authority()._store()
     expected = await store.current_policy(TENANT)
     if expected is None or expected.split(":")[-1] != policy_version(policy):

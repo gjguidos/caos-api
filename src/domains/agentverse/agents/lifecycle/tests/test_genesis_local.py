@@ -57,7 +57,7 @@ async def test_trusted_seed_and_policy_cas(local, mode):
     utu = SimpleNamespace(_store=lambda: store, install_policy=AsyncMock())
     definitions = SimpleNamespace(
         find_by_id=AsyncMock(return_value=None),
-        repository=SimpleNamespace(create=AsyncMock()),
+        repository=SimpleNamespace(create=AsyncMock(), update=AsyncMock(return_value=True)),
         AGENTS_COL="coll_agents",
     )
     container = SimpleNamespace(
@@ -73,6 +73,7 @@ async def test_trusted_seed_and_policy_cas(local, mode):
     await initialize_local(container)
     document = definitions.repository.create.call_args.args[0]
     assert Agent.model_validate(document).visibility == "private"
+    assert document["runtime_version"] == "v2"
     assert document["tenant_id"] == TENANT
     if mode == "same":
         utu.install_policy.assert_not_awaited()
@@ -83,3 +84,44 @@ async def test_trusted_seed_and_policy_cas(local, mode):
         utu.install_policy.side_effect = EventPermissionError("conflict")
         with pytest.raises(EventPermissionError):
             await initialize_local(container)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provenance", [True, False])
+async def test_existing_seed_requires_persisted_provenance_to_backfill(local, provenance):
+    policy = SynapticAuthorization(grants={(TENANT, ADAM): SynapticGrants(["chat.context"])})
+    existing = {"id": ADAM, "creator": OWNER, "tenant_id": TENANT, "genesis_local_seed": provenance}
+    repository = SimpleNamespace(create=AsyncMock(), update=AsyncMock(return_value=True))
+    store = SimpleNamespace(current_policy=AsyncMock(return_value="inc:" + policy_version(policy)))
+    utu = SimpleNamespace(_store=lambda: store, install_policy=AsyncMock())
+    definitions = SimpleNamespace(
+        find_by_id=AsyncMock(return_value=existing), repository=repository, AGENTS_COL="coll_agents"
+    )
+    container = SimpleNamespace(
+        agentverse=SimpleNamespace(
+            synaptic_authorization=lambda: policy,
+            genesis_approvals=lambda: {
+                (TENANT, ADAM): AgentActivationApproval(TENANT, ADAM, OWNER, True)
+            },
+            db_service=lambda: definitions,
+            utu_authority=lambda: utu,
+        )
+    )
+    if provenance:
+        await initialize_local(container)
+        assert repository.update.call_args.kwargs["query"]["runtime_version"] == {"$exists": False}
+        assert repository.update.call_args.kwargs["data"] == {"runtime_version": "v2"}
+        repository.update.reset_mock()
+        existing["runtime_version"] = "v2"
+        await initialize_local(container)
+        repository.update.assert_not_awaited()
+        existing.pop("runtime_version")
+        repository.update.return_value = False
+        with pytest.raises(ValueError, match="conflicted"):
+            await initialize_local(container)
+    else:
+        with pytest.raises(ValueError, match="provenance"):
+            await initialize_local(container)
+        repository.update.assert_not_awaited()
+    repository.create.assert_not_awaited()
+    utu.install_policy.assert_not_awaited()
