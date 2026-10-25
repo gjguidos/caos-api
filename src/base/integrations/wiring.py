@@ -26,6 +26,7 @@ KINDS = (
     "llm",
     "cache",
     "communication",
+    "messaging",
     "audio",
     "embedding",
     "db",
@@ -44,6 +45,7 @@ FALLBACKS = {
     "embedding": "noop",
     "llm": "",
     "audio": "",
+    "messaging": "",
     "communication": "",  # often required; leave blank unless you want a hard fallback
 }
 
@@ -61,7 +63,9 @@ def compute_defaults(cm: dict) -> dict:
         real = first_real_key(cm.get(kind, {}))
         return real or FALLBACKS.get(kind, "")
 
-    return {kind: pick(kind) for kind in KINDS}
+    # The catalog endpoint exposes every registered group, including extensions.
+    kinds = dict.fromkeys((*KINDS, *cm))
+    return {kind: pick(kind) for kind in kinds}
 
 
 def build_client_factory(

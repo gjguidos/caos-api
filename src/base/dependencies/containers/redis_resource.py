@@ -31,13 +31,13 @@ async def redis_resource():
     # --------------------------------------------------------------
     if is_local_development():
         logger.info(
-            "Redis mode: Local Redis env=%s url=%s",
+            "Redis mode: Local Redis env=%s host=%s",
             getattr(
                 settings.application,
                 "environment",
                 "development",
             ),
-            c.redis_url,
+            c.redis_host,
         )
 
         client = redis.from_url(
@@ -107,14 +107,14 @@ async def redis_resource():
         logger.info(
             (
                 "Redis mode: Azure for Redis using "
-                "System Assigned Identity env=%s url=%s pool_max=%d"
+                "System Assigned Identity env=%s host=%s pool_max=%d"
             ),
             getattr(
                 settings.application,
                 "environment",
                 "development",
             ),
-            c.redis_url,
+            c.redis_host,
             c.redis_pool_max,
         )
 

@@ -53,6 +53,15 @@ class ChatToolConfig(ToolConfig):
         "provides_context": True,
         "config_schema": "src.domains.agentverse.tools.chat_tool.ChatToolConfig",
         "config": ChatToolConfig().model_dump(),
+        "synaptic": {
+            "capabilities": [
+                {
+                    "signal": "chat.context",
+                    "access": "core",
+                    "trusted_lines": [],
+                },
+            ],
+        },
         "outputs": [
             {"key": "answer", "label": "Answer", "type": "string", "path": "answer"},
         ],

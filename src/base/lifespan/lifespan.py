@@ -36,7 +36,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     finally:
         cleanup_errors: list[BaseException] = []
         # Quiesce producers/consumers before closing shared infrastructure.
-        for name in ("supervisor", "runtime", "rabbitmq", "executors", "mongo", "redis", "splunk"):
+        for name in (
+            "genesis",
+            "genesis_sessions",
+            "supervisor",
+            "runtime",
+            "rabbitmq",
+            "executors",
+            "mongo",
+            "redis",
+            "splunk",
+        ):
             cleanup = cleanups.get(name)
             if cleanup is None:
                 continue
@@ -73,6 +83,14 @@ async def _startup_lifespan(
 
     # Get Redis instance from dependency injection container
     container = app.container
+    agentverse = getattr(container, "agentverse", None)
+    genesis = getattr(agentverse, "agent_lifecycle_service", None)
+    if isinstance(genesis, providers.Provider):
+
+        async def shutdown_genesis() -> None:
+            await genesis().shutdown()
+
+        cleanups["genesis"] = shutdown_genesis
     stack = AsyncExitStack()
     cleanups["redis"] = stack.aclose
     redis_client = await stack.enter_async_context(container.redis.redis_client())
@@ -80,6 +98,11 @@ async def _startup_lifespan(
     container.redis.redis_client.override(providers.Object(redis_client))
 
     redis_repo = container.redis.redis_repository()
+
+    start_sessions = getattr(app.state, "start_genesis_sessions", None)
+    if start_sessions is not None:
+        cleanups["genesis_sessions"] = app.state.close_genesis_sessions
+        await start_sessions()
 
     rabbitmq = app.container.messaging.rabbitmq_client()
     cleanups["rabbitmq"] = rabbitmq.stop

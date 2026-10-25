@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from types import SimpleNamespace
 from typing import Any, Literal
 
@@ -8,7 +9,29 @@ from pydantic import Field, field_validator
 
 from src.domains.agentverse.utils.canonicalize import canonicalize
 
+_SIGNAL_PATTERN = re.compile(
+    r"[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+"
+)
+class SynapticCapabilitySpec(_BM):
+    """A synaptic capability exposed by an AOSA tool."""
 
+    signal: str
+    access: Literal["core", "granted", "system"] = "granted"
+    trusted_lines: list[str] = Field(default_factory=list)
+
+    @field_validator("signal")
+    @classmethod
+    def _validate_signal(cls, value: str) -> str:
+        if not _SIGNAL_PATTERN.fullmatch(value):
+            raise ValueError(
+                f"Invalid synaptic signal: {value!r}"
+            )
+        return value
+
+class SynapticToolSpec(_BM):
+    capabilities: list[SynapticCapabilitySpec] = Field(
+        default_factory=list
+    )
 class ToolOutputSpec(_BM):
     """A single typed output a tool declares it returns.
 
@@ -68,6 +91,10 @@ class ToolSpec(_BM):
 
     metadata: dict[str, Any] = Field(default_factory=dict)
     config: dict[str, Any] = Field(default_factory=dict)
+    synaptic: SynapticToolSpec | None = Field(
+        default=None,
+        validate_default=True,
+    )
 
     tags: list[str] = Field(default_factory=list)
 
@@ -96,6 +123,15 @@ class ToolSpec(_BM):
         if isinstance(raw, dict):
             return FilesSupport(**raw)
         return FilesSupport()
+
+    @field_validator("synaptic", mode="before")
+    @classmethod
+    def _synaptic_from_meta(cls, v, info):
+        if v is not None:
+            return v
+
+        meta = info.data.get("metadata") or {}
+        return meta.get("synaptic")
 
     @field_validator("metadata", mode="before")
     @classmethod

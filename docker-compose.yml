@@ -12,6 +12,7 @@ services:
       - "8001:8001"
     volumes:
       - ./logs:/app/logs
+      - ./config:/app/config:ro
       - ./src:/app/src
       - ./chroma_db:/app/chroma_db
       - /etc/localtime:/etc/localtime:ro
@@ -19,6 +20,7 @@ services:
     env_file:
       - .env
     environment:
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?Set a hex Redis password}@redis:6379/0
       - MCP_PROXY_ENABLED=${MCP_PROXY_ENABLED:-false}
       - MCP_PROXY_BASE_URL=http://mcp-proxy:8080/api
     depends_on:
@@ -121,18 +123,27 @@ services:
 
   redis:
     image: redis:6-alpine
-    ports:
-      - "6379:6379"
     volumes:
       - redis-data:/data
     networks:
       - app_network
     restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: "${REDIS_PASSWORD:?Set a hex Redis password}"
+    # Keep development Redis private to this host; 6379 may belong to host Redis.
+    ports:
+      - "127.0.0.1:${REDIS_LOCAL_PORT:-6380}:6379"
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        case "$$REDIS_PASSWORD" in *[!a-fA-F0-9]*|'') echo 'Use a hex Redis password' >&2; exit 1;; esac
+        [ "$${#REDIS_PASSWORD}" -ge 64 ] || exit 1
+        umask 077
+        printf 'user default on #%s ~* &* +@all\n' "$$(printf '%s' "$$REDIS_PASSWORD" | sha256sum | cut -d ' ' -f 1)" > /tmp/caos-users.acl
+        chown redis:redis /tmp/caos-users.acl
+        exec /usr/local/bin/docker-entrypoint.sh redis-server --aclfile /tmp/caos-users.acl --protected-mode yes --appendonly yes --appendfsync always --maxmemory-policy noeviction
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 60s
-      timeout: 10s
-      retries: 3
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -qx PONG"]
 
   mcp-proxy:
     profiles: ["full"]

@@ -1,0 +1,20 @@
+{
+  "approvals": [
+    {
+      "tenant_id": "caos-local",
+      "agent_id": "00000000-0000-4000-8000-000000000002",
+      "owner_user_id": "00000000-0000-4000-8000-000000000001",
+      "enabled": true
+    }
+  ],
+  "grants": [
+    {
+      "tenant_id": "caos-local",
+      "agent_id": "00000000-0000-4000-8000-000000000002",
+      "invoke": [
+        "chat.context"
+      ]
+    }
+  ],
+  "trusted_lines": []
+}

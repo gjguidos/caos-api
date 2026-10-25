@@ -14,6 +14,7 @@ from src.base.lifespan.lifespan import lifespan
 from src.base.logging.logging_config import LoggingConfig
 from src.base.system.initialize_app import initialize_app
 from src.base.utils.env_utils import is_local_development
+from src.domains.agentverse.dependencies.genesis_bootstrap import build_genesis_security
 
 # --- Logging configuration ---
 LoggingConfig.setup_logging()
@@ -73,6 +74,6 @@ app = FastAPI(
 )
 
 # Delegate the startup process to the startup module
-app = initialize_app(app)
+app = initialize_app(app, domain_security_factory=build_genesis_security)
 
 logger.info(settings.texts_new.main.application_started)

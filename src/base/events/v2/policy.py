@@ -9,6 +9,7 @@ from .contracts import EventPermissionError
 class EventGrants:
     publish: frozenset[str] = frozenset()
     subscribe: frozenset[str] = frozenset()
+    invoke: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -30,3 +31,18 @@ class CognitiveEventPolicy:
     def require_subscribe(self, agent_id: str, event_type: str) -> None:
         if event_type not in self._grants.get(agent_id, EventGrants()).subscribe:
             raise EventPermissionError(f"Subscribe denied: {agent_id} <- {event_type}")
+
+    def require_invoke(
+        self,
+        principal: EventPrincipal,
+        signal: str,
+    ) -> None:
+        grants = self._grants.get(
+            principal.agent_id,
+            EventGrants(),
+        )
+
+        if signal not in grants.invoke:
+            raise EventPermissionError(
+                f"Invoke denied: {principal.agent_id} -> {signal}"
+            )

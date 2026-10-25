@@ -19,14 +19,27 @@ class AgentInstanceRegistry:
     def get(self, user_id: str, agent_id: str, session_id: str | None = None):
         return self._map.get(self._k(user_id, agent_id, session_id))
 
-    def set(self, user_id: str, agent_id: str, agent, session_id: str | None = None) -> None:
-        self._map[self._k(user_id, agent_id, session_id)] = agent
+    def set(
+        self,
+        user_id: str,
+        agent_id: str,
+        agent,
+        session_id: str | None = None,
+    ) -> None:
+        key = self._k(user_id, agent_id, session_id)
+
+        existing = self._map.get(key)
+
+        if existing is not None and existing is not agent:
+            raise RuntimeError(
+                f"Agent instance already registered for {key!r}"
+            )
+
+        self._map[key] = agent
 
     def remove(self, user_id: str, agent_id: str, session_id: str | None = None) -> None:
         key = self._k(user_id, agent_id, session_id)
         self._map.pop(key, None)
-        # optional: free the per-key lock to avoid unbounded growth
-        self._locks.pop(key, None)
 
     def lock(self, user_id: str, agent_id: str, session_id: str | None = None) -> asyncio.Lock:
         return self._locks[self._k(user_id, agent_id, session_id)]

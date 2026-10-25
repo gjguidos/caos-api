@@ -1,0 +1,25 @@
+# Explicit maintenance override; do not apply without approval. Keeps redis-data.
+services:
+  api:
+    environment:
+      # Override an old REDIS_URL in .env; CacheSettings otherwise ignores password parts.
+      REDIS_URL: "redis://:${REDIS_PASSWORD:?Set a hex Redis password}@redis:6379/0"
+      REDIS_PASSWORD: "${REDIS_PASSWORD:?Set a hex Redis password}"
+      REDIS_TLS: "false"
+  redis:
+    environment:
+      REDIS_PASSWORD: "${REDIS_PASSWORD:?Set a hex Redis password}"
+    # !override requires Docker Compose >= 2.24.4; removes the original all-interface mapping.
+    ports: !override
+      - "127.0.0.1:${REDIS_LOCAL_PORT:-6380}:6379"
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        case "$$REDIS_PASSWORD" in *[!a-fA-F0-9]*|'') echo 'Use a hex Redis password' >&2; exit 1;; esac
+        [ "$${#REDIS_PASSWORD}" -ge 64 ] || exit 1
+        umask 077
+        printf 'user default on #%s ~* &* +@all\n' "$$(printf '%s' "$$REDIS_PASSWORD" | sha256sum | cut -d ' ' -f 1)" > /tmp/caos-users.acl
+        chown redis:redis /tmp/caos-users.acl
+        exec /usr/local/bin/docker-entrypoint.sh redis-server --aclfile /tmp/caos-users.acl --protected-mode yes --appendonly yes --appendfsync always --maxmemory-policy noeviction
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -qx PONG"]

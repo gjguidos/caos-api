@@ -10,6 +10,7 @@ from src.base.dependencies.di_container import Container as BaseContainer
 from src.domains.agentverse.dependencies.di_container import (
     extend_container as extend_with_agentverse_domain,
 )
+from src.domains.agentverse.dependencies.genesis_security import GenesisSecurityBindings
 from src.domains.browser_session.dependencies.di_container import (
     extend_container as extend_with_browser_session_domain,
 )
@@ -18,7 +19,9 @@ from src.domains.green_claim.dependencies.di_container import (
 )
 
 
-def initialize_domains(container: BaseContainer) -> BaseContainer:
+def initialize_domains(
+    container: BaseContainer, *, genesis_security: GenesisSecurityBindings | None = None
+) -> BaseContainer:
     """
     Initialize all domain-specific containers and extend the base container.
 
@@ -30,7 +33,7 @@ def initialize_domains(container: BaseContainer) -> BaseContainer:
     """
     # Extend the container with each domain
     container = extend_with_browser_session_domain(container)
-    container = extend_with_agentverse_domain(container)
+    container = extend_with_agentverse_domain(container, genesis_security=genesis_security)
     container = extend_with_green_claim_domain(container)
 
     # Add more domains as needed:

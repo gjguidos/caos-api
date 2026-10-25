@@ -1,5 +1,6 @@
 import logging
 import os
+from collections.abc import Callable
 
 from fastapi import FastAPI
 
@@ -19,12 +20,17 @@ from src.domains import initialize_domains
 logger = logging.getLogger(settings.texts_new.initializers.app["logger_name"])
 
 
-def initialize_app(app: FastAPI) -> FastAPI:
+def initialize_app(
+    app: FastAPI, *, domain_security: dict | None = None,
+    domain_security_factory: Callable[[Container], dict] | None = None,
+) -> FastAPI:
     """
     Initialize the FastAPI app with all necessary configurations, routes, and middleware.
 
     Args:
         app (FastAPI): The FastAPI application instance.
+        domain_security: Optional trusted domain bootstrap bindings. Never
+            populate from request input. Missing Genesis bindings deny activation.
 
     Returns:
         FastAPI: The configured FastAPI application instance.
@@ -39,11 +45,21 @@ def initialize_app(app: FastAPI) -> FastAPI:
 
     # Initialize domain-specific containers
     logger.info(settings.texts_new.initializers.app["initialize_business_domains"])
-    container = initialize_domains(container)
+    if domain_security_factory is not None:
+        if domain_security is not None:
+            raise ValueError("Choose explicit security bindings or a security factory")
+        domain_security = domain_security_factory(container)
+    container = initialize_domains(container, **(domain_security or {}))
 
     # Attach the container to the app
     logger.info(settings.texts_new.initializers.app["attaching_di"])
     app.container = container
+    if domain_security and domain_security.get("genesis_security") is not None:
+        from src.domains.agentverse.dependencies.genesis_bootstrap import (
+            configure_genesis_transport,
+        )
+
+        configure_genesis_transport(app, domain_security["genesis_security"])
 
     # Register domain routes
     logger.info(settings.texts_new.initializers.app["registering_domain_routes"])
