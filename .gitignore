@@ -34,3 +34,5 @@ node_modules
 
 # Disposable NCSC integration-test credentials
 .smoke/
+
+docs/REGISTRY_GOVERNANCE_V1_RG02E_inventory.json
