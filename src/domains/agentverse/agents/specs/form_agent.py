@@ -13,6 +13,7 @@ from src.domains.agentverse.agents.specs.agent_spec import (
 )
 
 form_agent_spec = AgentSpec(
+    ownership="global",
     key="form",
     name="Form",
     description=(

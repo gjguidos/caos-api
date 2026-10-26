@@ -36,6 +36,7 @@ class RefineConfig(ToolConfig):
     description="Improves a draft against the original request and brief.",
     version="1.0.0",
     metadata={
+        "ownership": "system",
         "requires_collection": False,
         "execution_mode": "llm_only",
         "llm_free": False,

@@ -10,6 +10,7 @@ from src.domains.agentverse.workflows.spec import WorkflowSpec
     description="Parent workflow that runs mini_workflow_v1 as a single workflow step.",
     version="0.1.0",
     metadata={
+        "ownership": "global",
         "tools": ["workflow"],
         "uses_workflows": ["mini_workflow_v1"],
     },

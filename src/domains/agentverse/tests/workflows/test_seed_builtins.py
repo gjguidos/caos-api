@@ -12,6 +12,7 @@ from src.domains.agentverse.workflows.seed import seed_builtin_workflows
 
 def _db() -> MagicMock:
     db = MagicMock(spec=DBService)
+    db.find_one = AsyncMock(return_value=None)
     db.repository = MagicMock()
     db.repository.upsert = AsyncMock()
     collection = MagicMock()
@@ -31,6 +32,7 @@ async def test_seed_upserts_all_workflows():
     for call in db.repository.upsert.await_args_list:
         doc = call.kwargs["data"]
         assert doc["origin"] == "builtin"
+        assert doc["ownership"] == "global"
 
 
 @pytest.mark.asyncio
@@ -61,3 +63,44 @@ async def test_seed_ensures_unique_index():
 
     collection = await db.repository.get_collection(DBService.WORKFLOWS_COL)
     collection.create_index.assert_awaited_with("key", unique=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "existing",
+    [
+        {"origin": "builtin"},
+        {"ownership": "tenant", "tenant_id": "tenant", "origin": "db"},
+        {"ownership": "system", "origin": "builtin"},
+        {"ownership": "global", "tenant_scoped": True, "origin": "builtin"},
+        {"ownership": "global", "tenant_id": "tenant", "origin": "builtin"},
+    ],
+)
+async def test_seed_preserves_unclassified_or_conflicting_history(existing):
+    db = _db()
+    db.find_one.return_value = existing
+    assert await seed_builtin_workflows(db) == 0
+    db.repository.upsert.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_seed_updates_only_explicitly_shared_builtin_rows():
+    db = _db()
+    db.find_one.return_value = {"ownership": "global", "origin": "builtin"}
+    assert await seed_builtin_workflows(db) >= 2
+    for call in db.repository.upsert.await_args_list:
+        assert call.kwargs["query"]["ownership"] == "global"
+        assert call.kwargs["query"]["origin"] == "builtin"
+        assert "ownership" not in call.kwargs["data"]
+        assert "exposure" not in call.kwargs["data"]
+
+
+@pytest.mark.asyncio
+async def test_seed_does_not_retry_a_concurrent_ownership_collision():
+    from pymongo.errors import DuplicateKeyError
+
+    db = _db()
+    db.repository.upsert.side_effect = DuplicateKeyError("collision")
+    assert await seed_builtin_workflows(db) == 0
+    for call in db.repository.upsert.await_args_list:
+        assert call.kwargs["query"]["ownership"] == "global"

@@ -2,7 +2,7 @@
 REST CRUD for the persisted workflow catalog (``coll_workflows``).
 
 Auto-discovered by ``src/base/routing/auto_routing.py`` (exposes a top-level
-``router``). Reads are open to any authenticated user; create/edit/delete are
+``router``). Reads use UTU catalog policy; create/edit/delete are
 ADMIN, enforced in-app (no external ``workflow.*`` permissions).
 """
 

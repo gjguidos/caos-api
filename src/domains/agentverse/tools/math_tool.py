@@ -263,6 +263,7 @@ class MathToolConfig(ToolConfig):
     description="Evaluate math expressions, do basic calculus/algebra, small unit conversions. Returns {'answer': ..., 'addons': {...}}.",
     version="1.0.0",
     metadata={
+        "ownership": "global",
         "execution_mode": "pure",
         "llm_free": True,
         "route": "pure",

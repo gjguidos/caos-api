@@ -75,6 +75,7 @@ async def test_trusted_seed_and_policy_cas(local, mode):
     assert Agent.model_validate(document).visibility == "private"
     assert document["runtime_version"] == "v2"
     assert document["tenant_id"] == TENANT
+    assert document["ownership"] == "tenant"
     if mode == "same":
         utu.install_policy.assert_not_awaited()
     else:

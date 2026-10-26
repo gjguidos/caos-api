@@ -29,6 +29,7 @@ async def response_env(communication):
     definition = {
         "id": "agent",
         "creator": "owner",
+        "ownership": "tenant",
         "tenant_id": "tenant",
         "enabled": True,
         "runtime_version": "v2",
@@ -37,7 +38,10 @@ async def response_env(communication):
         "prompt": "Remember the user's chosen constellation.",
         "llm_type": "registered-model",
     }
-    c.e.definitions.find_by_id.side_effect = lambda _: definition.copy()
+    original_lookup = c.e.definitions.find_by_id.side_effect
+    c.e.definitions.find_by_id.side_effect = lambda agent_id: (
+        definition.copy() if agent_id == "agent" else original_lookup(agent_id)
+    )
     repo = SimpleNamespace(
         get_response_async=AsyncMock(return_value="I remember Orion."),
         client=SimpleNamespace(provider="test-provider", chat_deployment="test-model"),

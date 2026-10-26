@@ -17,6 +17,7 @@ from src.domains.agentverse.agents.specs.agent_spec import (
 )
 
 chat_spec = AgentSpec(
+    ownership="global",
     key="chat",
     name="Chat",
     description="Conversational agent with friendly tone, short-term memory, and optional tool use.",
@@ -56,6 +57,7 @@ chat_spec = AgentSpec(
     agent_subclass=AgentSubclass.CONVERSATIONAL,
     tools=[
         ToolRef(
+            key="datetime",
             name="Datetime Tool",
             provider_key="tools:datetime",
             permissions=["read:datetime"],

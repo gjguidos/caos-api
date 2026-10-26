@@ -5,6 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, HttpUrl, model_validator
 
+from src.domains.agentverse.entities.resource_ownership import ResourceOwnership
 from src.domains.agentverse.utils.canonicalize import require_canonical_key
 
 Semver = str  # enforce semver separately
@@ -78,6 +79,7 @@ class AgentSubclass(str, Enum):
 
 
 class ToolRef(BaseModel):
+    key: str | None = None  # explicit registry address, independent of display name
     name: str
     version: Semver | None = None
     provider_key: str = Field(..., description="DI key, e.g. 'tools:search'")
@@ -171,6 +173,8 @@ class UISchema(BaseModel):
 
 
 class AgentSpec(BaseModel):
+    # Trusted declarations only; omitted ownership remains unclassified.
+    ownership: ResourceOwnership | None = None
     # Identity
     key: str  # canonical, unique identifier (e.g. "chat"); the FE addresses agents by this
     name: str

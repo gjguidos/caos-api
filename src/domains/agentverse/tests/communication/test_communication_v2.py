@@ -55,6 +55,8 @@ async def communication(session_env):  # noqa: F811 - fixture re-export
     e.definitions.find_by_id.side_effect = lambda agent: {
         "id": agent,
         "creator": "owner",
+        "ownership": "tenant",
+        "tenant_id": "tenant",
         "runtime_version": "v2",
         "name": "Adam",
     }
@@ -277,6 +279,8 @@ async def test_denial_before_lifecycle_or_cpbx(communication, mode):
         c.e.definitions.find_by_id.side_effect = lambda agent: {
             "id": agent,
             "creator": "owner",
+            "ownership": "tenant",
+            "tenant_id": "tenant",
             "runtime_version": "v2",
             "enabled": False,
         }

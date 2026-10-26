@@ -9,6 +9,7 @@ from src.domains.agentverse.registries import personality_registry_instance
 
 
 @personality_registry_instance.register(
+    metadata={"ownership": "global"},
     name="The Ideator - Wild Card",
     description="Playful, high-energy concept generator who sparks unconventional ideas and explores creative extremes.",
 )

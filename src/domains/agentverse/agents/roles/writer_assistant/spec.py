@@ -6,6 +6,7 @@ from src.domains.agentverse.agents.roles.writer_assistant.handlers.h_refine impo
 from src.domains.agentverse.agents.roles.writer_assistant.handlers.h_task import h_task
 
 role_spec = RoleSpec(
+    ownership="global",
     key="writer_assistant",
     name="Writer Assistant",
     version="1.1.0",

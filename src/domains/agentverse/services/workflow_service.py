@@ -2,8 +2,8 @@
 WorkflowService — CRUD + resolution for the persisted workflow catalog.
 
 Mongo is the source of truth (collection ``coll_workflows``). Workflows are
-globally readable; the *agent* enforces who may invoke one, so there is no
-per-user read authz here. Create/update/delete are gated at the REST layer
+readable through UTU client catalog policy; runtime resolution is trusted and
+remains separate from discovery/read authorization. Create/update/delete are gated at the REST layer
 (ADMIN). ``key`` is the immutable foreign reference held by ``Agent.workflows``.
 """
 
@@ -11,10 +11,12 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from datetime import UTC, datetime
+from typing import Literal
 
 from pymongo.errors import DuplicateKeyError
 
 from src.base.entities.user import User
+from src.domains.agentverse.entities.resource_ownership import verified_tenant
 from src.domains.agentverse.entities.workflow import (
     WorkflowCreateRequest,
     WorkflowDocument,
@@ -29,6 +31,9 @@ from src.domains.agentverse.exceptions import (
 )
 from src.domains.agentverse.logging.logger_v1 import AGENTVERSE_LOGGER, LogDomain
 from src.domains.agentverse.services.db_service import DBService
+from src.domains.agentverse.services.registry_service import RegistryService
+from src.domains.agentverse.security.manifest_projection import project_authoring_workflow
+from pydantic import ValidationError
 from src.domains.agentverse.tools.workflow_tool.models import ResolvedWorkflow, WorkflowDefinition
 from src.domains.agentverse.utils.canonicalize import canonicalize
 from src.domains.agentverse.workflows.helpers.validate_definition import (
@@ -94,6 +99,10 @@ class WorkflowService:
         req: WorkflowCreateRequest,
         user: User,
     ) -> WorkflowDocument:
+        if verified_tenant(user) is None:
+            raise WorkflowValidationError(
+                message="Authenticated identity with verified tenant required"
+            )
         key = self._slugify(req.key or req.name)
         if not key:
             raise WorkflowValidationError(message="Workflow key/name resolved to an empty slug")
@@ -110,6 +119,8 @@ class WorkflowService:
         now = self._now()
         doc = WorkflowDocument(
             key=key,
+            ownership="tenant",
+            tenant_id=user.tenant_id,
             name=req.name,
             description=req.description,
             version=req.version,
@@ -124,6 +135,10 @@ class WorkflowService:
             created_at=now,
             updated_at=now,
         )
+
+        # Construct the response before writing: an unsupported/private manifest
+        # must not produce a successful mutation followed by a projection error.
+        client_doc = self._client_document(doc.model_dump(mode="json"), user)
 
         # The pre-check above is racy; the unique `key` index is the real guard.
         # Translate a lost race into the same validation error as the pre-check.
@@ -140,22 +155,47 @@ class WorkflowService:
             "[🧭 WORKFLOW][🏗️ CREATE] workflow_created",
             extra={"workflow_key": key, "created_by": user.id},
         )
-        return doc
+        return client_doc
 
     # ------------------------------------------------------------------
     # READ
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _client_readable(
+        doc: dict, user: User | None, *, operation: Literal["DISCOVER", "READ"] = "READ"
+    ) -> bool:
+        from src.domains.agentverse.registries.registries import registries
+
+        return RegistryService(registries).client_metadata_allowed(doc, user, operation=operation)
+
+    @staticmethod
+    def _client_document(doc: dict, user: User | None) -> WorkflowDocument:
+        if not WorkflowService._client_readable(doc, user):
+            raise WorkflowNotFoundError(doc.get("key", ""))
+        try:
+            return WorkflowDocument.model_validate(project_authoring_workflow(doc))
+        except (ValidationError, TypeError, ValueError, KeyError):
+            raise WorkflowNotFoundError(doc.get("key", "")) from None
+
     async def get_workflow(self, key: str, user: User | None = None) -> WorkflowDocument:
         key = self._slugify(key)
         doc = await self._find_doc(key)
-        if not doc:
+        if not doc or not self._client_readable(doc, user):
             raise WorkflowNotFoundError(key)
-        return WorkflowDocument(**doc)
+        return self._client_document(doc, user)
 
     async def list_workflows(self, user: User | None = None) -> list[WorkflowDocument]:
         docs = await self.db_service.find_all(collection_name=DBService.WORKFLOWS_COL)
-        return [WorkflowDocument(**doc) for doc in docs]
+        result = []
+        for doc in docs:
+            if not self._client_readable(doc, user, operation="DISCOVER"):
+                continue
+            try:
+                result.append(self._client_document(doc, user))
+            except WorkflowNotFoundError:
+                continue
+        return result
 
     async def get_workflows(self, keys: Iterable[str]) -> tuple[list[WorkflowDocument], list[str]]:
         """Fetch every key in one query, returning ``(found, missing)``.
@@ -210,7 +250,11 @@ class WorkflowService:
     ) -> WorkflowDocument:
         key = self._slugify(key)
         existing = await self._find_doc(key)
-        if not existing:
+        if (
+            not existing
+            or existing.get("ownership") != "tenant"
+            or not self._client_readable(existing, user)
+        ):
             raise WorkflowNotFoundError(key)
 
         update_data = req.model_dump_for_update()
@@ -222,10 +266,12 @@ class WorkflowService:
             update_data["required_tools"] = self._assert_valid(update_data["definition"])
 
         if not update_data:
-            return WorkflowDocument(**existing)
+            return self._client_document(existing, user)
 
         update_data["updated_by"] = user.id
         update_data["updated_at"] = self._now()
+
+        self._client_document({**existing, **update_data}, user)
 
         await self.db_service.repository.update(
             query={"key": key},
@@ -248,7 +294,7 @@ class WorkflowService:
                 "updated_fields": list(update_data.keys()),
             },
         )
-        return WorkflowDocument(**refreshed)
+        return self._client_document(refreshed, user)
 
     # ------------------------------------------------------------------
     # DELETE
@@ -257,7 +303,11 @@ class WorkflowService:
     async def delete_workflow(self, key: str, user: User) -> None:
         key = self._slugify(key)
         existing = await self._find_doc(key)
-        if not existing:
+        if (
+            not existing
+            or existing.get("ownership") != "tenant"
+            or not self._client_readable(existing, user)
+        ):
             raise WorkflowNotFoundError(key)
 
         pinned = await self._agents_pinned_to(key)

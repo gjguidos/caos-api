@@ -6,6 +6,7 @@ from src.domains.agentverse.registries import personality_registry_instance
 
 
 @personality_registry_instance.register(
+    metadata={"ownership": "global"},
     name="Empty EVA", description="Base for creation of new personalities"
 )
 class QuickAssistant(AgentSoulProtocol):

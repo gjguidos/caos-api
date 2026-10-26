@@ -9,6 +9,7 @@ from src.domains.agentverse.registries import personality_registry_instance
 
 
 @personality_registry_instance.register(
+    metadata={"ownership": "global"},
     name="The Creative Director - Challenger",
     description="Visionary challenger who reframes problems and elevates ideas - bold, culturally aware, and strategically aligned.",
 )

@@ -13,6 +13,7 @@ from src.domains.agentverse.agents.roles.role_spec import (
 )
 
 role_spec = RoleSpec(
+    ownership="global",
     key="crawler",
     name="Crawler",
     version="1.0.0",

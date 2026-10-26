@@ -212,6 +212,7 @@ class SecureRAGToolConfig(ToolConfig):
     description="Retrieval-Augmented Generation with diversified search and structured sources.",
     version="2.6.1",  # bumped
     metadata={
+        "ownership": "global",
         "requires_collection": True,
         "config_schema": "src.domains.agentverse.tools.rag_tool.SecureRAGToolConfig",
         "config": SecureRAGToolConfig().model_dump(),

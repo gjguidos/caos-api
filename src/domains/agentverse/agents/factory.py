@@ -779,9 +779,23 @@ class AgentFactory:
                 or (info.name if info else None)
                 or key
             ),
-            version=meta.get("version"),
+            description=(info.description if info else None),
+            version=(info.version if info else None),
+            metadata=meta,
+            exposure=meta.get("exposure"),
+            tool_class=meta.get("tool_class"),
+            source=meta.get("source"),
+            tags=meta.get("tags") or [],
+            ui=meta.get("ui") or {},
+            outputs=meta.get("outputs") or [],
+            supports=meta.get("supports") or {},
+            synaptic=meta.get("synaptic"),
             scope=scope,
-            config={**(meta.get("default_config") or {}), **config_overrides},
+            config={
+                **(meta.get("default_config") or {}),
+                **(meta.get("config") or {}),
+                **config_overrides,
+            },
         )
 
     def _ref_to_spec(self, ref: AgentToolRef) -> ToolSpec:

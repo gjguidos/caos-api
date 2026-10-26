@@ -53,6 +53,7 @@ async def _invoke_llm_via_agent(
     description="Scores an answer against a question & brief acceptance criteria.",
     version="1.2.0",
     metadata={
+        "ownership": "system",
         "requires_collection": False,
         "config_schema": "src.domains.agentverse.tools.evaluate_tool.EvaluateConfig",
         "config": EvaluateConfig().model_dump(),

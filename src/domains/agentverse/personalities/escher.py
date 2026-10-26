@@ -9,6 +9,7 @@ from src.domains.agentverse.registries import personality_registry_instance
 
 
 @personality_registry_instance.register(
+    metadata={"ownership": "global"},
     name="M.C. Escher",
     description="Architect of recursion and illusion - artist of impossible spaces and reflective infinities.",
 )

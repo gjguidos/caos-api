@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from src.base.authentication.permission import Permission
 from src.base.authentication.rbac import require_roles_and_scopes
@@ -179,7 +179,10 @@ async def get_soul(
         },
     )
 
-    soul = personality_service.extract_soul(key)
+    try:
+        soul = personality_service.extract_soul_for_client(key, user)
+    except KeyError as exc:
+        raise HTTPException(404, "Personality unavailable") from exc
     result = soul.minimal_dump()
 
     AGENTVERSE_LOGGER.info(
@@ -283,7 +286,10 @@ async def get_agent_types(
         },
     )
 
-    results = registry_service.list(type, include_metadata=True)
+    try:
+        results = registry_service.list_for_client(type, user, include_metadata=True)
+    except KeyError as exc:
+        raise HTTPException(404, "Registry unavailable") from exc
 
     AGENTVERSE_LOGGER.info(
         LogDomain.COMMAND_ROOM,
@@ -317,7 +323,7 @@ async def get_registry_entry_details(
     )
 
     try:
-        component_cls = registry_service.get_info(registry_type, key)
+        component_cls = registry_service.get_info_for_client(registry_type, key, user)
         result = component_cls.model_dump()
 
         AGENTVERSE_LOGGER.info(

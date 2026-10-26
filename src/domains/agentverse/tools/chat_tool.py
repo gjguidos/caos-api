@@ -38,6 +38,7 @@ class ChatToolConfig(ToolConfig):
     description="General LLM response tool with persona & policy awareness.",
     version="1.0.0",
     metadata={
+        "ownership": "system",
         "execution_mode": "context_only",
         "llm_free": False,
         "route": "invoker",

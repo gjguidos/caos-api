@@ -10,6 +10,7 @@ from src.domains.agentverse.workflows.spec import WorkflowInputField, WorkflowSp
     description="Minimal workflow used to test WorkflowTool registry resolution and execution.",
     version="0.1.0",
     metadata={
+        "ownership": "global",
         "tools": ["writer", "draw"],
     },
 )

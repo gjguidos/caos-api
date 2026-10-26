@@ -11,6 +11,7 @@ ideation_tool = ToolSpec(
     version="1.5.0",
     enabled=True,
     metadata={
+        "ownership": "global",
         # -------- core behaviour --------
         "execution_mode": "context_only",
         "llm_free": False,

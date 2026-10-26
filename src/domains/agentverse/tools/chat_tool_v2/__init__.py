@@ -65,6 +65,7 @@ class ChatContextResult(BaseModel):
     ),
     version="2.0.0",
     metadata={
+        "ownership": "system",
         "tool_class": "conversational",
         "execution_mode": "context_only",
         "llm_free": True,

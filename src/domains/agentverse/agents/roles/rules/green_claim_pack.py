@@ -7,6 +7,7 @@ from src.domains.agentverse.registries import (
 
 
 @rulepack_registry.register(
+    metadata={"ownership": "global"},
     name="Green Claims Compliance",
     description="Strict rule pack for environmental and sustainability claims, ensuring clarity, evidence, legality, and non-misleading communication.",
 )

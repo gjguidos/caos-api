@@ -6,6 +6,7 @@ from src.domains.agentverse.agents.roles.compliance_auditor.handlers.h_task impo
 from src.domains.agentverse.agents.roles.role_spec import PhaseSpec, RolePolicy, RoleSpec
 
 role_spec = RoleSpec(
+    ownership="global",
     key="compliance_auditor",
     name="Compliance Auditor",
     version="1.1.0",

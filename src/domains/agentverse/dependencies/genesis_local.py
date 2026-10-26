@@ -47,6 +47,8 @@ async def initialize_local(container: Container) -> None:
     definition = await definitions.find_by_id(ADAM)
     if definition is None:
         document = Agent(
+            ownership="tenant",
+            tenant_id=TENANT,
             runtime_version="v2",
             id=ADAM,
             name="Adam",

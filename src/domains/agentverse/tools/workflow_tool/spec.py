@@ -12,6 +12,7 @@ workflow_tool = ToolSpec(
     tags=["orchestration", "workflow", "state_machine"],
     config=WorkflowToolConfig().model_dump(),
     metadata={
+        "ownership": "global",
         "provider": "tools:orchestration",
         "llm_free": True,
         "execution_mode": "pure",

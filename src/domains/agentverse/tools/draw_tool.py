@@ -79,6 +79,7 @@ class DrawToolConfig(ToolConfig):
     description="A tool that generates images using a visual LLM like DALL·E. Returns {'images': [...]} with standardized addons.",
     version="1.5.1",
     metadata={
+        "ownership": "global",
         "execution_mode": "generative",
         "llm_free": False,
         "route": "invoker",

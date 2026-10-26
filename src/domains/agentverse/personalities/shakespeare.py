@@ -9,6 +9,7 @@ from src.domains.agentverse.registries import personality_registry_instance
 
 
 @personality_registry_instance.register(
+    metadata={"ownership": "global"},
     name="William Shakespeare",
     description="Playwright-poet of Elizabethan and Jacobean England-metaphoric lightning, iambic rhythm, and humanistic wit.",
 )

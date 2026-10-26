@@ -5,6 +5,7 @@ from src.domains.agentverse.registries import rulepack_registry_instance as rule
 
 
 @rulepack_registry.register(
+    metadata={"ownership": "global"},
     name="GDPR Compliance",
     description=(
         "Rule pack for checking that text, flows, and UX around personal data "

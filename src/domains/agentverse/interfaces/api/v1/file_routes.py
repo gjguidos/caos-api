@@ -19,6 +19,7 @@ from src.domains.agentverse.dependencies.get_workflow_service import get_workflo
 from src.domains.agentverse.exceptions import WorkflowNotFoundError
 from src.domains.agentverse.logging.logger_v1 import AGENTVERSE_LOGGER, LogDomain
 from src.domains.agentverse.registries.registries import tool_registry_instance
+from src.domains.agentverse.services.registry_service import RegistryService
 from src.domains.agentverse.services.workflow_service import WorkflowService
 from src.domains.agentverse.tools.spec import FilesSupport
 from src.domains.agentverse.utils.canonicalize import canonicalize
@@ -40,14 +41,17 @@ class FileUploadResponse(BaseModel):
     sha256: str
 
 
-def _resolve_files_support(target_tool: str) -> tuple[str, FilesSupport]:
+def _resolve_files_support(target_tool: str, user: User | None = None) -> tuple[str, FilesSupport]:
     """
     Resolve target_tool to a canonical key and its FilesSupport config.
 
     Raises HTTPException 400 if the tool does not exist or does not support files.
     """
     key = canonicalize(target_tool or "")
-    if key not in tool_registry_instance:
+    info = tool_registry_instance.get_info(key)
+    if info is None or not RegistryService({"tool": tool_registry_instance}).client_metadata_allowed(
+        info.metadata, user
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"target_tool '{target_tool}' not found in registry",
@@ -70,6 +74,7 @@ def _resolve_files_support(target_tool: str) -> tuple[str, FilesSupport]:
 async def _resolve_workflow_constraints(
     *,
     workflow_service: WorkflowService,
+    user: User | None = None,
     target_workflow: str,
     target_input: str | None,
 ) -> tuple[str, list[str] | None]:
@@ -83,7 +88,7 @@ async def _resolve_workflow_constraints(
     Raises HTTPException 400 when the workflow or input does not resolve.
     """
     try:
-        doc = await workflow_service.get_workflow(target_workflow)
+        doc = await workflow_service.get_workflow(target_workflow, user)
     except WorkflowNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -125,6 +130,7 @@ async def _resolve_upload_target(
     target_workflow: str | None,
     target_input: str | None,
     workflow_service: WorkflowService,
+    user: User | None = None,
 ) -> _UploadTarget:
     """Resolve exactly one of ``target_tool``/``target_workflow`` to the upload's
     canonical target and constraints. Raises HTTPException 400 when the target is
@@ -136,7 +142,7 @@ async def _resolve_upload_target(
         )
 
     if target_tool:
-        tool_key, files_support = _resolve_files_support(target_tool)
+        tool_key, files_support = _resolve_files_support(target_tool, user)
         return _UploadTarget(
             tool_key=tool_key,
             workflow_key="",
@@ -146,6 +152,7 @@ async def _resolve_upload_target(
 
     workflow_key, accepted_mimes = await _resolve_workflow_constraints(
         workflow_service=workflow_service,
+        user=user,
         target_workflow=target_workflow or "",
         target_input=target_input,
     )
@@ -205,6 +212,7 @@ async def upload_file(
         target_workflow=target_workflow,
         target_input=target_input,
         workflow_service=workflow_service,
+        user=user,
     )
 
     data = await file.read()

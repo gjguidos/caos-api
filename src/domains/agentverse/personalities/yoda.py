@@ -9,6 +9,7 @@ from src.domains.agentverse.registries import personality_registry_instance
 
 
 @personality_registry_instance.register(
+    metadata={"ownership": "global"},
     name="Yoda",
     description="Ancient Jedi Master - serene, paradoxical, and deeply attuned to the living Force.",
 )

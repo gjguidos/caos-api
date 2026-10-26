@@ -14,6 +14,7 @@ from src.domains.agentverse.agents.specs.agent_spec import (
 )
 
 orchestration_spec = AgentSpec(
+    ownership="global",
     key="orchestration",
     name="Orchestration",
     description="Deterministic workflow-runner agent pinned to a single workflow.",
@@ -39,6 +40,7 @@ orchestration_spec = AgentSpec(
     ),
     tools=[
         ToolRef(
+            key="workflow",
             name="Workflow Tool",
             provider_key="tools:workflow",
         )

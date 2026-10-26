@@ -222,6 +222,7 @@ class JWTVerificationMiddleware(BaseHTTPMiddleware):
         # Store user information for dependencies (extract from claims)
         request.state.user = User(
             id=claims.get("oid") or claims.get("sub"),
+            tenant_id=claims.get("tid"),
             email=claims.get("email") or claims.get("preferred_username"),
             name=claims.get("name"),
             roles=claims.get("roles", []),

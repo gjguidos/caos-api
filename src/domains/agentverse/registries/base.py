@@ -6,6 +6,7 @@ from typing import Any, ClassVar, Generic, TypeVar, overload
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.domains.agentverse.entities.resource_exposure import ResourceExposure, classify_resource
 from src.domains.agentverse.exceptions import RegistrationError
 from src.domains.agentverse.logging.logger_v1 import (
     AGENTVERSE_LOGGER,
@@ -31,6 +32,11 @@ class RegistryItem(BaseModel):
     registration_time: datetime = Field(default_factory=datetime.now)
 
     model_config = ConfigDict(extra="allow")
+
+    @property
+    def exposure(self) -> ResourceExposure:
+        """Normalized catalog classification; does not change serialized metadata."""
+        return classify_resource(self.metadata).exposure
 
 
 class Registry(Generic[T]):
@@ -71,9 +77,6 @@ class Registry(Generic[T]):
     def values(self) -> list[T]:
         return list(self._registry.values())
 
-
-    def items(self) -> list[tuple[str, T]]:
-        return list(self._registry.items())
 
     @classmethod
     def catalog(cls) -> dict[str, dict[str, Any]]:

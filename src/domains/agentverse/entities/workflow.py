@@ -29,6 +29,10 @@ def slugify_workflow_key(key: str | None) -> str:
 class WorkflowDocument(BaseModel):
     """A persisted workflow row. Mirrors ``WorkflowSpec`` + audit metadata."""
 
+    exposure: Literal["public", "internal"] = "public"
+    ownership: Literal["system", "tenant", "global"] | None = None
+    tenant_id: str | None = None
+
     key: str  # Immutable, unique-indexed. The FK held by agents.
     name: str
     description: str | None = None
@@ -64,6 +68,7 @@ class WorkflowDocument(BaseModel):
         same thing and a spec cannot declare tools its DAG never invokes.
         """
         return cls(
+            ownership="global",
             key=slugify_workflow_key(spec.key),
             name=spec.name,
             description=spec.description,

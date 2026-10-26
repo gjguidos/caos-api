@@ -9,6 +9,7 @@ from src.domains.agentverse.registries import personality_registry_instance
 
 
 @personality_registry_instance.register(
+    metadata={"ownership": "global"},
     name="The Social Chameleon",
     description="Adaptive voice expert-translating messages into culturally fluent, platform-native expression.",
 )

@@ -5,8 +5,9 @@ from types import SimpleNamespace
 from typing import Any, Literal
 
 from pydantic import BaseModel as _BM
-from pydantic import Field, field_validator
+from pydantic import Field, ValidationInfo, field_validator
 
+from src.domains.agentverse.entities.resource_exposure import ResourceExposure
 from src.domains.agentverse.utils.canonicalize import canonicalize
 
 _SIGNAL_PATTERN = re.compile(
@@ -90,6 +91,8 @@ class ToolSpec(_BM):
     scope: ToolScope = "agent"
 
     metadata: dict[str, Any] = Field(default_factory=dict)
+    # Catalog exposure is independent of agent/workflow/system invocation scope.
+    exposure: ResourceExposure | None = Field(default=None, validate_default=True)
     config: dict[str, Any] = Field(default_factory=dict)
     synaptic: SynapticToolSpec | None = Field(
         default=None,
@@ -111,6 +114,30 @@ class ToolSpec(_BM):
     source: str | None = None
 
     model_config = {"json_encoders": {set: list}}
+
+    @field_validator("exposure", mode="before")
+    @classmethod
+    def _exposure_from_meta(cls, value: Any, info: ValidationInfo) -> Any:
+        return value if value is not None else (info.data.get("metadata") or {}).get("exposure")
+
+    def registration_metadata(self) -> dict[str, Any]:
+        """Flatten declarations while retaining legacy metadata semantics.
+
+        Explicit top-level values override metadata using existing hydration rules.
+        Omitted fields preserve metadata, rather than overwriting it with defaults.
+        """
+        meta = dict(self.metadata)
+        fields = (
+            "scope", "exposure", "ui", "tags", "config", "outputs", "supports",
+            "synaptic", "tool_class", "source",
+        )
+        values = self.model_dump(mode="json", include=set(fields))
+        for field in fields:
+            if values[field] is not None and (
+                field in self.model_fields_set or (field not in meta and values[field])
+            ):
+                meta[field] = values[field]
+        return meta
 
     @property
     def files_support(self) -> FilesSupport | None:

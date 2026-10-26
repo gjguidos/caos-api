@@ -78,6 +78,7 @@ async def _authenticate_and_accept(
 
     user = User(
         id=claims.get("oid") or claims.get("sub"),
+        tenant_id=claims.get("tid"),
         email=claims.get("email") or claims.get("preferred_username"),
         name=claims.get("name"),
         roles=claims.get("roles", []),

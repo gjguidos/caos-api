@@ -13,6 +13,7 @@ writer_tool = ToolSpec(
     version="0.1.0",
     enabled=True,
     metadata={
+        "ownership": "global",
         # -------- core behaviour --------
         "execution_mode": "context_only",
         "llm_free": False,

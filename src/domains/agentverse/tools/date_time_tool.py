@@ -46,6 +46,7 @@ class DateToolConfig(ToolConfig):
     description="LLM-free date utility: returns today's date (timezone-aware). Explicit activation via @datetime.",
     version="1.0.0",
     metadata={
+        "ownership": "global",
         "tags": ["builtin", "system"],
         "provider": "tools:date",
         "execution_mode": "pure",

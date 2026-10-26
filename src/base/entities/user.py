@@ -31,6 +31,7 @@ class User(BaseModel):
         default_factory=list,
         description="List of scopes/permissions granted to the user",
     )
+    tenant_id: str | None = Field(None, description="Tenant from verified JWT tid claim")
     access_token: str | None = Field(None, description="Raw Bearer token from the incoming request")
 
     class Config:

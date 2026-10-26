@@ -9,6 +9,7 @@ from src.domains.agentverse.registries import personality_registry_instance
 
 
 @personality_registry_instance.register(
+    metadata={"ownership": "global"},
     name="The Notorious B.I.G.",
     description="Brooklyn storyteller who turned struggle into poetry. Street philosopher, lyrical architect.",
 )

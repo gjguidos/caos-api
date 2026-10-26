@@ -32,6 +32,7 @@ from src.domains.agentverse.registries import agent_registry_instance as agent_r
 from src.domains.agentverse.registries import personality_registry_instance as personality_registry
 from src.domains.agentverse.runtime.compatibility import require_v1_runtime
 from src.domains.agentverse.security import agent_access
+from src.domains.agentverse.security.utu import UTUAuthority
 from src.domains.agentverse.services.audit_service import AuditService
 from src.domains.agentverse.services.db_service import DBService
 from src.domains.agentverse.services.workflow_service import WorkflowService
@@ -83,6 +84,20 @@ class AgentService:
         agent_config: AgentRequest,
         user: User,
     ) -> Agent:
+        # Shared boundary for both V1 sockets and direct service callers.
+        # Deny before validation, duplicate reads, factory work or persistence.
+        if not agent_access.can_create(user):
+            raise AgentAccessDeniedError(
+                user_id=getattr(user, "id", None),
+                agent_id="new",
+                action="create",
+                reason="verified tenant and admin or group-admin role required",
+            )
+        agent_config.user_id = user.id
+        if agent_config.__pydantic_extra__:
+            for field in ("ownership", "tenant_id", "tenant_scoped", "exposure"):
+                agent_config.__pydantic_extra__.pop(field, None)
+
         AGENTVERSE_LOGGER.info(
             LogDomain.OPERATIONS_COMMANDER,
             "[🧬 AGENT][🏗️ CREATE] create_start",
@@ -143,6 +158,9 @@ class AgentService:
         )
 
         agent = await self.agent_factory.create_agent(socket_emitter, agent_config)
+        agent.ownership = "tenant"
+        agent.tenant_id = user.tenant_id
+        agent.exposure = "public"
 
         AGENTVERSE_LOGGER.info(
             LogDomain.OPERATIONS_COMMANDER,
@@ -224,9 +242,16 @@ class AgentService:
             )
             raise AgentNotFoundError(agent_id)
 
+        if not UTUAuthority.can_access_resource(user, agent_data, operation="READ"):
+            raise AgentAccessDeniedError(
+                user_id=user.id,
+                agent_id=agent_id,
+                action="read",
+                reason="resource ownership or exposure denied",
+            )
         agent = Agent(**agent_data)
 
-        if not agent_access.can_read(user, agent):
+        if agent.id != agent_id or not agent_access.can_read(user, agent):
             AGENTVERSE_LOGGER.warning(
                 LogDomain.OPERATIONS_COMMANDER,
                 "[🧬 AGENT][🔐 ACCESS] read_denied",
@@ -265,7 +290,12 @@ class AgentService:
 
         read_filter = agent_access.build_read_filter(user)
         agents_data = await self.db_service.find_all(query=read_filter)
-        agents = [Agent(**data) for data in agents_data]
+        agents = [
+            agent
+            for data in agents_data
+            if UTUAuthority.can_access_resource(user, data, operation="DISCOVER")
+            and agent_access.can_read(user, agent := Agent(**data), operation="DISCOVER")
+        ]
 
         AGENTVERSE_LOGGER.info(
             LogDomain.OPERATIONS_COMMANDER,
@@ -307,6 +337,13 @@ class AgentService:
             )
             raise AgentNotFoundError(agent_id)
 
+        if not UTUAuthority.can_access_resource(user, existing, operation="READ"):
+            raise AgentAccessDeniedError(
+                user_id=user.id,
+                agent_id=agent_id,
+                action="update",
+                reason="resource ownership or exposure denied",
+            )
         existing_agent = Agent(**existing)
 
         if not agent_access.can_write(user, existing_agent):
@@ -472,6 +509,13 @@ class AgentService:
             )
             raise AgentNotFoundError(agent_id)
 
+        if not UTUAuthority.can_access_resource(user, agent_data, operation="READ"):
+            raise AgentAccessDeniedError(
+                user_id=user.id,
+                agent_id=agent_id,
+                action="read",
+                reason="resource ownership or exposure denied",
+            )
         agent = Agent(**agent_data)
 
         if not agent_access.can_write(user, agent):

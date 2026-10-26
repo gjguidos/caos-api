@@ -242,6 +242,7 @@ async def _rewrite_with_llm(agent, text: str, *, persona: str, locale: str, max_
     description="Chooses contextual call-to-action items and crafts a short, friendly question. Optionally rewrites via LLM.",
     version="1.0.0",
     metadata={
+        "ownership": "system",
         "config_schema": "src.domains.agentverse.tools.cta_tool.CTAConfig",
         "config": CTAConfig().model_dump(),
         "execution_mode": "hybrid",

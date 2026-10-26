@@ -9,6 +9,7 @@ from src.domains.agentverse.registries import personality_registry_instance
 
 
 @personality_registry_instance.register(
+    metadata={"ownership": "global"},
     name="The Brand Guardian - Ambassador",
     description="Calm, principled custodian of tone, truth, and ethics keeps brand trust intact while enabling creative progress.",
 )

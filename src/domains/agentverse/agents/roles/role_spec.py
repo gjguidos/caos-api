@@ -8,6 +8,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from src.domains.agentverse.agents.roles.rules.rulepack_spec import RuleSpec
+from src.domains.agentverse.entities.resource_ownership import ResourceOwnership
 from src.domains.agentverse.utils.canonicalize import require_canonical_key
 
 # Orchestrator phase handler signature: (ctx, role_spec) -> ctx
@@ -126,6 +127,8 @@ class RoleSpec:
     created_at: str = field(default_factory=_now_iso)
     updated_at: str = field(default_factory=_now_iso)
 
+    ownership: ResourceOwnership | None = None
+
     def __post_init__(self) -> None:
         require_canonical_key(self.key, kind="Role", name=self.name)
 
@@ -151,6 +154,7 @@ class RoleSpec:
             return v
 
         manifest = {
+            "ownership": self.ownership,
             "key": self.key,
             "name": self.name,
             "version": self.version,

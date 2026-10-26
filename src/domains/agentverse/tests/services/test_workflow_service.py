@@ -24,6 +24,15 @@ from src.domains.agentverse.services.workflow_service import WorkflowService
 from src.domains.agentverse.tools.workflow_tool.models import WorkflowDefinition
 
 
+@pytest.fixture(autouse=True)
+def explicitly_shared_tool_fixtures(monkeypatch):
+    from src.domains.agentverse.registries import tool_registry_instance
+
+    for key in ("writer", "draw"):
+        item = tool_registry_instance.get_info(key)
+        monkeypatch.setattr(item, "metadata", {**item.metadata, "ownership": "global"})
+
+
 def _valid_definition() -> dict:
     return {
         "execution_mode": "sequential",
@@ -35,7 +44,7 @@ def _valid_definition() -> dict:
 
 
 def _user() -> User:
-    return User(id="user-1", roles=["agentverse-admin"])
+    return User(id="user-1", tenant_id="tenant", roles=["agentverse-admin"])
 
 
 def _make_service() -> tuple[WorkflowService, MagicMock]:
@@ -78,7 +87,9 @@ async def test_create_rejects_invalid_definition():
 @pytest.mark.asyncio
 async def test_create_rejects_duplicate_key():
     svc, db = _make_service()
-    db.find_one = AsyncMock(return_value={"key": "mini"})
+    db.find_one = AsyncMock(
+        return_value={"key": "mini", "ownership": "tenant", "tenant_id": "tenant"}
+    )
     req = WorkflowCreateRequest(name="mini", definition=_valid_definition())
 
     with pytest.raises(WorkflowValidationError):
@@ -128,6 +139,8 @@ async def test_update_applies_only_set_fields():
     svc, db = _make_service()
     existing = {
         "key": "mini",
+        "ownership": "tenant",
+        "tenant_id": "tenant",
         "name": "Mini",
         "definition": _valid_definition(),
         "required_tools": ["writer"],
@@ -154,6 +167,8 @@ async def test_definition_only_edit_widens_required_tools():
     svc, db = _make_service()
     existing = {
         "key": "mini",
+        "ownership": "tenant",
+        "tenant_id": "tenant",
         "name": "Mini",
         "definition": _valid_definition(),
         "required_tools": ["writer"],
@@ -180,7 +195,9 @@ async def test_definition_only_edit_widens_required_tools():
 @pytest.mark.asyncio
 async def test_delete_blocked_when_pinned():
     svc, db = _make_service()
-    db.find_one = AsyncMock(return_value={"key": "mini"})
+    db.find_one = AsyncMock(
+        return_value={"key": "mini", "ownership": "tenant", "tenant_id": "tenant"}
+    )
     db.find_all = AsyncMock(return_value=[{"id": "agent-1"}, {"id": "agent-2"}])
 
     with pytest.raises(WorkflowInUseError):
@@ -191,7 +208,9 @@ async def test_delete_blocked_when_pinned():
 @pytest.mark.asyncio
 async def test_delete_succeeds_when_unpinned():
     svc, db = _make_service()
-    db.find_one = AsyncMock(return_value={"key": "mini"})
+    db.find_one = AsyncMock(
+        return_value={"key": "mini", "ownership": "tenant", "tenant_id": "tenant"}
+    )
     db.find_all = AsyncMock(return_value=[])
 
     await svc.delete_workflow("mini", _user())
@@ -204,6 +223,8 @@ async def test_delete_succeeds_when_unpinned():
 def _row(key: str, required_tools: list[str]) -> dict:
     return {
         "key": key,
+        "ownership": "tenant",
+        "tenant_id": "tenant",
         "name": key,
         "definition": _valid_definition(),
         "required_tools": required_tools,
@@ -283,7 +304,13 @@ async def test_required_tools_for_no_workflows_requires_nothing():
 async def test_resolve_definition_from_mongo():
     svc, db = _make_service()
     db.find_one = AsyncMock(
-        return_value={"key": "mini", "name": "Mini", "definition": _valid_definition()}
+        return_value={
+            "key": "mini",
+            "ownership": "tenant",
+            "tenant_id": "tenant",
+            "name": "Mini",
+            "definition": _valid_definition(),
+        }
     )
 
     wf, name, inputs = await svc.resolve_definition("mini")
@@ -299,6 +326,8 @@ async def test_resolve_definition_returns_declared_inputs():
     db.find_one = AsyncMock(
         return_value={
             "key": "mini",
+            "ownership": "tenant",
+            "tenant_id": "tenant",
             "name": "Mini",
             "definition": _valid_definition(),
             "inputs": [{"key": "pic", "label": "Picture", "input": "file", "required": True}],
@@ -328,8 +357,8 @@ async def test_list_has_no_auth_filter():
     svc, db = _make_service()
     db.find_all = AsyncMock(
         return_value=[
-            {"key": "a", "name": "A", "definition": _valid_definition()},
-            {"key": "b", "name": "B", "definition": _valid_definition()},
+            {"ownership": "global", "key": "a", "name": "A", "definition": _valid_definition()},
+            {"ownership": "global", "key": "b", "name": "B", "definition": _valid_definition()},
         ]
     )
 

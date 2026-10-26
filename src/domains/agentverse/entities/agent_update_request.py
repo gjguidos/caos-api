@@ -61,8 +61,21 @@ class AgentUpdateRequest(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def reject_runtime_metadata(cls, value: Any) -> Any:
-        if isinstance(value, dict) and {"runtime_version", "genesis_local_seed"} & value.keys():
-            raise ValueError("Runtime version and seed provenance are managed by the server")
+        server_fields = {
+            "runtime_version",
+            "genesis_local_seed",
+            "ownership",
+            "exposure",
+            "tenant_id",
+            "tenant_scoped",
+            "creator",
+            "user_id",
+            "id",
+        }
+        if isinstance(value, dict) and server_fields & value.keys():
+            raise ValueError(
+                "Identity, tenant, exposure, runtime version and seed provenance are managed by the server"
+            )
         return value
 
     model_config = {"extra": "allow", "populate_by_name": True}

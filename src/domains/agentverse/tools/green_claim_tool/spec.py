@@ -8,6 +8,7 @@ green_claim_tool = ToolSpec(
     description="Analyzes text for greenwashing and environmental compliance violations against the ICC Responsible Environmental Marketing Communications Checklist.",
     version="1.0.0",
     metadata={
+        "ownership": "global",
         "provider": "tools:green_claim",
         "execution_mode": "pure",
         "route": "pure",

@@ -262,6 +262,7 @@ ParsedAnalysis.model_rebuild()
     description="LLM-only brief and acceptance extraction. No tool selection.",
     version="2.0.0",
     metadata={
+        "ownership": "system",
         "tool_class": "analysis",
         "tags": ["builtin", "system"],
         "execution_mode": "llm_only",

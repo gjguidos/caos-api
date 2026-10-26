@@ -28,6 +28,7 @@ web_crawler_tool = ToolSpec(
     ],
     parameters=parameters,
     metadata={
+        "ownership": "global",
         "provider": "tools:web",
         "llm_free": True,
         "execution_mode": "pure",

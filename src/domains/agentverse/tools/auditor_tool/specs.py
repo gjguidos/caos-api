@@ -12,6 +12,7 @@ auditor_tool = ToolSpec(
     ),
     version="0.1.0",
     metadata={
+        "ownership": "global",
         # -------- core behaviour --------
         "execution_mode": "context_only",
         "llm_free": False,

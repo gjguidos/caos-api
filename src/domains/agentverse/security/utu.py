@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 from uuid import uuid4
 
+from src.base.entities.user import User
 from src.base.events.v2.contracts import EventPermissionError
 from src.base.events.v2.policy import EventPrincipal
 from src.domains.agentverse.agents.lifecycle.agent_principal_resolver import (
@@ -16,6 +17,8 @@ from src.domains.agentverse.agents.lifecycle.agent_principal_resolver import (
     VerifiedAgentSession,
 )
 from src.domains.agentverse.entities.conversation_v2 import ConversationV2
+from src.domains.agentverse.entities.resource_exposure import classify_resource
+from src.domains.agentverse.entities.resource_ownership import client_owns_scope
 from src.domains.agentverse.ncsc.authorization import SynapticAuthorization
 from src.domains.agentverse.ncsc.models import SynapticExecutionContext, SynapticGrants
 from src.domains.agentverse.runtime.instances_v2 import AgentInstanceKey
@@ -34,6 +37,43 @@ class AuthorizedAgentPrincipal(EventPrincipal):
 
 
 class UTUAuthority:
+    @staticmethod
+    def can_access_resource(
+        user: User | None, metadata: dict[str, Any], *, operation: Literal["DISCOVER", "READ"]
+    ) -> bool:
+        """Client catalog policy over authenticated identity and trusted resource data.
+
+        Unclassified records fail closed. Explicit global resources can be shared;
+        tenant resources require matching verified context. System ownership is
+        reserved for trusted runtime paths, independent of public exposure.
+        This decision grants neither attachment nor invocation authority.
+        """
+        if (
+            operation not in ("DISCOVER", "READ")
+            or not isinstance(user, User)
+            or not user.id
+            or not user.id.strip()
+        ):
+            return False
+        if not client_owns_scope(user, metadata):
+            return False
+        try:
+            if classify_resource(metadata).exposure != "public":
+                return False
+        except (ValueError, TypeError, AttributeError):
+            return False
+        visibility = metadata.get("visibility", "public")
+        if visibility == "private":
+            from src.domains.agentverse.security import agent_access
+
+            return bool(
+                agent_access.is_superadmin(user)
+                or user.id == (metadata.get("creator") or metadata.get("created_by"))
+                or agent_access.get_user_groups(user)
+                & set(metadata.get("whitelisted_groups") or [])
+            )
+        return visibility == "public"
+
     def __init__(
         self,
         *,
@@ -188,6 +228,18 @@ class UTUAuthority:
             )
         ):
             raise EventPermissionError("Conversation access denied")
+        for agent_id in conversation.agent_ids:
+            definition = await self._resolver._definitions.find_by_id(agent_id)
+            if (
+                not definition
+                or definition.get("id") != agent_id
+                or not self.can_access_resource(
+                    User(id=session.user_id, tenant_id=session.tenant_id),
+                    definition,
+                    operation="READ",
+                )
+            ):
+                raise EventPermissionError("Conversation target denied")
         # Verify every target before any lifecycle or CPBX call (no partial fanout).
         for agent in agent_ids:
             principal = await self.resolve_agent_principal(

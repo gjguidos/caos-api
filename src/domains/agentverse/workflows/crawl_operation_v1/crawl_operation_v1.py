@@ -14,6 +14,7 @@ from src.domains.agentverse.workflows.spec import WorkflowSpec
     ),
     version="1.0.0",
     metadata={
+        "ownership": "global",
         "operation": "crawl",
         "role_adapter": "crawler",
         "tools": [

@@ -6,6 +6,7 @@ from src.domains.agentverse.agents.roles.builtin.handlers.h_task import h_task
 from src.domains.agentverse.agents.roles.role_spec import PhaseSpec, RolePolicy, RoleSpec
 
 role_spec = RoleSpec(
+    ownership="global",
     key="general",
     name="General",
     version="1.1.0",

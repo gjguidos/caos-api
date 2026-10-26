@@ -8,6 +8,10 @@ from src.domains.agentverse.tools.spec import AgentToolRef
 
 
 class Agent(BaseModel):
+    exposure: Literal["public", "internal"] = "public"
+    ownership: Literal["system", "tenant", "global"] | None = None
+    tenant_id: str | None = None
+
     # Server-owned execution contract. Historical definitions use the V1 runtime.
     runtime_version: Literal["v1", "v2"] = "v1"
     id: str

@@ -10,6 +10,7 @@ from src.domains.agentverse.workflows.spec import WorkflowSpec
     description="Minimal workflow to verify two separate Mystic image calls produce two separate image results.",
     version="0.1.0",
     metadata={
+        "ownership": "system",
         "ui": {
             "icon": "🧪",
             "category": "debug",

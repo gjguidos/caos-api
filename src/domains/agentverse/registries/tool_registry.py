@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.domains.agentverse.entities.resource_exposure import classify_resource
 from src.domains.agentverse.exceptions import RegistrationError
 from src.domains.agentverse.logging.logger_v1 import log_nerv_hq
 from src.domains.agentverse.registries.base import Registry
@@ -75,7 +76,7 @@ class ToolRegistry(Registry[type[BaseTool]]):
                 name=spec.name or getattr(cls, "name", cls.__name__),
                 description=spec.description or getattr(cls, "__doc__", "") or "",
                 version=spec.version or getattr(cls, "version", "1.0.0"),
-                metadata=dict(getattr(spec, "metadata", {}) or {}),
+                metadata=spec.registration_metadata(),
             )
             return deco(cls)
 
@@ -132,6 +133,7 @@ class ToolRegistry(Registry[type[BaseTool]]):
             if "config" not in meta:
                 meta["config"] = dict(meta.get("default_config") or {})
 
+            classify_resource(meta)  # validate explicit exposure before registration
             self._normalize_outputs(meta, tool=display_name)
 
             # -------- register into base registry --------
@@ -203,7 +205,7 @@ class ToolRegistry(Registry[type[BaseTool]]):
         include_hidden: bool = False,
         allowed_tags: list[str] | None = None,
         blocked_tags: list[str] | None = None,
-    ) -> list[dict[str, any]]:
+    ) -> list[dict[str, Any]]:
         """
         Return tools intended for the frontend catalog.
 
@@ -230,37 +232,17 @@ class ToolRegistry(Registry[type[BaseTool]]):
 
             # Normalize helpers
             tags = _lower_set(meta.get("tags"))
-            visibility = str(
-                meta.get("visibility") or meta.get("ui", {}).get("visibility") or "public"
-            ).lower()
+            classification = classify_resource(meta)
             supports = meta.get("supports") or {}
-            scope_meta = str(meta.get("scope") or "").lower()
-            is_system_b = bool(meta.get("is_system"))
-            is_builtin_b = bool(meta.get("is_builtin"))
-
-            # Config flags (internal tools often stash these here)
-            cfg = meta.get("config") or meta.get("default_config") or {}
-            cfg_scope = str(cfg.get("_scope") or "").lower()
-            cfg_hidden = bool(cfg.get("_hidden"))
-            cfg_builtin = bool(cfg.get("_builtin"))  # optional
-
-            # Derived booleans (robust detection)
-            is_system = (
-                ("system" in tags)
-                or (scope_meta == "system")
-                or (cfg_scope == "system")
-                or bool(supports.get("system_only"))
-                or is_system_b
-            )
-            is_builtin = ("builtin" in tags) or is_builtin_b or cfg_builtin
-            is_hidden = (visibility == "hidden") or cfg_hidden or bool(meta.get("hidden"))
-
-            # Visibility gates
-            if is_hidden and not include_hidden:
+            # Explicit internal exposure has no public catalog opt-in. Legacy
+            # include flags retain their existing behavior for trusted consumers.
+            if meta.get("exposure") == "internal":
                 continue
-            if is_system and not include_system:
+            if classification.hidden and not include_hidden:
                 continue
-            if is_builtin and not include_builtin:
+            if classification.system and not include_system:
+                continue
+            if classification.builtin and not include_builtin:
                 continue
 
             # Optional tag allow/deny lists (operate on normalized tags)

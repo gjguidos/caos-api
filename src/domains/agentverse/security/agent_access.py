@@ -4,12 +4,15 @@ Agent access control.
 All read/write authorization decisions for agents live here.
 
 Read rules:
-    1. Public agents are visible to everyone.
+    0. Internal and foreign-tenant agents are never client-readable.
+    1. Public agents are visible to authenticated users.
     2. Private agents are always visible to their creator.
     3. Private agents with whitelisted groups are visible to members of those groups.
     4. Superadmins (agentverse-admin role) can see all agents.
 
-Write rules (create, update, delete):
+Creation requires an authenticated superadmin or group admin.
+
+Write rules for existing agents (update, delete):
     1. The creator of the agent.
     2. Admins of any whitelisted group the agent belongs to.
     3. Superadmins.
@@ -19,8 +22,11 @@ Group membership is derived from user roles which follow the format
 No external API calls are made.
 """
 
+from typing import Literal
+
 from src.base.entities.user import User
 from src.domains.agentverse.entities.agent import Agent
+from src.domains.agentverse.entities.resource_ownership import verified_tenant
 from src.domains.agentverse.logging.logger_v1 import AGENTVERSE_LOGGER, LogDomain
 
 SUPERADMIN_ROLE = "agentverse-admin"
@@ -57,7 +63,20 @@ def get_user_admin_groups(user: User) -> set[str]:
 # ---------------------------------------------------------------------------
 
 
-def can_read(user: User, agent: Agent) -> bool:
+def can_create(user: User | None) -> bool:
+    """Creation requires an authenticated admin or group admin.
+
+    Consume only the server-authenticated User, never agent configuration,
+    optional external permissions, or proposed ownership of the new agent.
+    """
+    return bool(
+        isinstance(user, User)
+        and verified_tenant(user) is not None
+        and (is_superadmin(user) or any(get_user_admin_groups(user)))
+    )
+
+
+def can_read(user: User, agent: Agent, *, operation: Literal["DISCOVER", "READ"] = "READ") -> bool:
     """Return True if *user* may read *agent*.
 
     Evaluated in order - first match wins:
@@ -66,6 +85,14 @@ def can_read(user: User, agent: Agent) -> bool:
       3. Creators always see their own agents.
       4. Members of a whitelisted group can see the agent.
     """
+    from src.domains.agentverse.security.utu import UTUAuthority
+
+    if not UTUAuthority.can_access_resource(
+        user,
+        {"ownership": agent.ownership, "exposure": agent.exposure, "tenant_id": agent.tenant_id},
+        operation=operation,
+    ):
+        return False
     user_id = user.id
     agent_id = getattr(agent, "id", None)
     agent_name = getattr(agent, "name", None)
@@ -159,13 +186,23 @@ def can_read(user: User, agent: Agent) -> bool:
 
 
 def can_write(user: User, agent: Agent) -> bool:
-    """Return True if *user* may create, update, or delete *agent*.
+    """Return True if *user* may update or delete *agent*.
 
     Evaluated in order - first match wins:
       1. Superadmins can write everything.
       2. Creators own their agents.
       3. Group admins can write agents whitelisted to their group.
     """
+    from src.domains.agentverse.security.utu import UTUAuthority
+
+    if agent.ownership != "tenant":
+        return False
+    if not UTUAuthority.can_access_resource(
+        user,
+        {"ownership": agent.ownership, "exposure": agent.exposure, "tenant_id": agent.tenant_id},
+        operation="READ",
+    ):
+        return False
     user_id = user.id
     agent_id = getattr(agent, "id", None)
     agent_name = getattr(agent, "name", None)
@@ -246,13 +283,18 @@ def can_write(user: User, agent: Agent) -> bool:
 def build_read_filter(user: User) -> dict:
     """Return a MongoDB query that matches only agents *user* may read.
 
-    Superadmins receive an empty filter (match all documents).
+    Internal exposure is excluded for every caller. The service rechecks tenant
+    and visibility on returned entities, including for superadmins.
     Everyone else gets an $or covering:
       - public agents
       - agents they created
       - private agents whitelisted to one of their groups
     """
     user_id = user.id
+    scopes = [{"ownership": "global", "tenant_id": None, "tenant_scoped": {"$ne": True}}]
+    if verified_tenant(user) is not None:
+        scopes.append({"ownership": "tenant", "tenant_id": user.tenant_id})
+    boundary = {"exposure": {"$ne": "internal"}, "$or": scopes}
 
     if is_superadmin(user):
         AGENTVERSE_LOGGER.info(
@@ -265,7 +307,7 @@ def build_read_filter(user: User) -> dict:
                 "filter_mode": "match_all",
             },
         )
-        return {}
+        return boundary
 
     conditions: list[dict] = [
         {"visibility": "public"},
@@ -276,7 +318,7 @@ def build_read_filter(user: User) -> dict:
     if user_group_ids:
         conditions.append({"whitelisted_groups": {"$in": user_group_ids}})
 
-    result_filter = {"$or": conditions}
+    result_filter = {"$and": [boundary, {"$or": conditions}]}
 
     AGENTVERSE_LOGGER.info(
         LogDomain.SECURITY_BAY,

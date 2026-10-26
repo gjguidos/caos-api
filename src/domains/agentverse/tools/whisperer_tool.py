@@ -75,6 +75,7 @@ class WhispererTool(BaseTool):
 # ------------------------- Late Registration -------------------------
 
 _METADATA: dict[str, Any] = {
+    "ownership": "global",
     "config_schema": "WhispererToolConfig",
     "config": {},
     "tags": ["builtin", "transcription", "audio", "whisper"],
