@@ -50,7 +50,7 @@ class RedisRepositoryImpl(
         return str(
             val
         )
-    
+
     async def get_raw(
         self,
         key: str,
@@ -377,7 +377,7 @@ class RedisRepositoryImpl(
             if isinstance(message_id, bytes)
             else str(message_id)
         )
-    
+
     async def xdel(
         self,
         name: str,
@@ -534,7 +534,7 @@ class RedisRepositoryImpl(
         if isinstance(value, bytes | bytearray):
             return value.decode("utf-8")
         return str(value)
-    
+
     async def xack_and_delete(
         self,
         name: str,

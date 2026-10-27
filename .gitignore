@@ -17,10 +17,6 @@ htmlcov
 .github/copilot-instructions.md
 .github/instructions/
 
-# IDE files
-src/agentverse.egg-info
-src/agentverse.egg-info/*
-
 # Claude & Codex
 .claude
 CLAUDE.md
@@ -36,3 +32,8 @@ node_modules
 .smoke/
 
 docs/REGISTRY_GOVERNANCE_V1_RG02E_inventory.json
+_version.py
+scm_file_list.json
+scm_version.json
+
+src/caos_api.egg-info/*
