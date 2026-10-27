@@ -4,19 +4,23 @@ import asyncio
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock, call
 
 import pytest
 from pytest import MonkeyPatch
 
 from src.base.queues.models import AgentVerseJob
 from src.base.queues.worker import QueueWorker, QueueWorkerPool
+from src.domains.agentverse.tools.web_crawler_tool.execution.crawl_chunk_runner import (
+    CrawlChunkResult,
+)
 from src.domains.agentverse.tools.web_crawler_tool.streams.consumer import (
     SitemapCrawlConsumer,
 )
 from src.domains.agentverse.tools.web_crawler_tool.streams.handler import (
     SitemapCrawlHandler,
 )
+
 
 def make_chunk_job(
     *,
@@ -155,8 +159,10 @@ def crawler_dependencies() -> dict[str, Any]:
         "fetcher": object(),
         "auth_context": None,
         "agent": object(),
-        "snapshot_store": object(),
-        "asset_store": object(),
+        "acquisition_started": 0.0,
+        "accumulator": object(),
+        "planned_total": 2,
+        "on_page_fetched": AsyncMock(),
     }
 
 
@@ -205,13 +211,13 @@ async def test_handler_processes_chunk_and_acknowledges_after_success(
         ),
     )
 
-    expected_result = SimpleNamespace(
+    expected_result = CrawlChunkResult(
         chunk_index=0,
         planned=1,
-        acquired=1,
-        successful=1,
+        fetched=1,
+        queued_for_parse=1,
         failed=0,
-        successful_url_hashes=["hash-1"],
+        fetched_url_hashes=["hash-1"],
         failed_url_hashes=[],
     )
 
@@ -241,6 +247,8 @@ async def test_handler_processes_chunk_and_acknowledges_after_success(
 
     handler = SitemapCrawlHandler(
         consumer=consumer,
+        chunk_window=SimpleNamespace(release=Mock()),
+        on_chunk_complete=AsyncMock(),
     )
 
     messages = await queue_service.consume(
@@ -259,12 +267,15 @@ async def test_handler_processes_chunk_and_acknowledges_after_success(
 
     assert result is expected_result
 
-    inventory_store.complete_batch.assert_awaited_once_with(
+    inventory_store.get_leased_urls_by_hashes.assert_awaited_once_with(
         run_id="run-1",
         lease_id="chunk-1",
-        successful_hashes=["hash-1"],
-        failed_hashes=[],
+        url_hashes=["hash-1"],
     )
+    # Acquisition queues parsing; only the downstream page pipeline completes inventory.
+    inventory_store.complete_batch.assert_not_awaited()
+    handler.on_chunk_complete.assert_awaited_once_with(expected_result)
+    handler.chunk_window.release.assert_called_once_with()
 
     assert queue_service.acknowledged == []
 
@@ -333,6 +344,8 @@ async def test_handler_does_not_acknowledge_failed_job(
 
     handler = SitemapCrawlHandler(
         consumer=consumer,
+        chunk_window=SimpleNamespace(release=Mock()),
+        on_chunk_complete=AsyncMock(),
     )
 
     with pytest.raises(
@@ -343,6 +356,8 @@ async def test_handler_does_not_acknowledge_failed_job(
 
     assert queue_service.acknowledged == []
     inventory_store.complete_batch.assert_not_awaited()
+    handler.on_chunk_complete.assert_not_awaited()
+    handler.chunk_window.release.assert_called_once_with()
 
 
 @pytest.mark.asyncio
@@ -376,13 +391,13 @@ async def test_queue_worker_processes_crawler_handler(
         ),
     )
 
-    expected_result = SimpleNamespace(
+    expected_result = CrawlChunkResult(
         chunk_index=0,
         planned=1,
-        acquired=1,
-        successful=1,
+        fetched=1,
+        queued_for_parse=1,
         failed=0,
-        successful_url_hashes=["hash-1"],
+        fetched_url_hashes=["hash-1"],
         failed_url_hashes=[],
     )
 
@@ -412,7 +427,15 @@ async def test_queue_worker_processes_crawler_handler(
 
     handler = SitemapCrawlHandler(
         consumer=consumer,
+        chunk_window=SimpleNamespace(release=Mock()),
+        on_chunk_complete=AsyncMock(),
     )
+
+    async def complete_before_ack(result: CrawlChunkResult) -> None:
+        assert result is expected_result
+        assert queue_service.acknowledged == []
+
+    handler.on_chunk_complete.side_effect = complete_before_ack
 
     worker = QueueWorker(
         queue_service=queue_service,
@@ -432,12 +455,39 @@ async def test_queue_worker_processes_crawler_handler(
     assert processed == 1
     assert queue_service.acknowledged == [message_id]
 
-    inventory_store.complete_batch.assert_awaited_once_with(
-        run_id="run-1",
-        lease_id="chunk-1",
-        successful_hashes=["hash-1"],
-        failed_hashes=[],
+    handler.on_chunk_complete.assert_awaited_once_with(expected_result)
+    handler.chunk_window.release.assert_called_once_with()
+    inventory_store.complete_batch.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_completion_failure_releases_window_and_worker_does_not_acknowledge() -> None:
+    job = make_job()
+    queue_service = FakeQueueService(messages=[("message-1", job)])
+    result = CrawlChunkResult(
+        chunk_index=0, planned=1, fetched=1, queued_for_parse=1, failed=0,
+        fetched_url_hashes=["hash-1"], failed_url_hashes=[],
     )
+    consumer = SimpleNamespace(process_job_without_ack=AsyncMock(return_value=result))
+    handler = SitemapCrawlHandler(
+        consumer=consumer,
+        chunk_window=SimpleNamespace(release=Mock()),
+        on_chunk_complete=AsyncMock(side_effect=RuntimeError("completion failed")),
+    )
+    worker = QueueWorker(
+        queue_service=queue_service,
+        queue_name="agentverse:crawler:acquisition:run-1",
+        consumer_group="crawler:run-1",
+        handler=handler,
+    )
+
+    with pytest.raises(RuntimeError, match="completion failed"):
+        await worker.run(consumer_name="worker-0", max_jobs=1)
+
+    consumer.process_job_without_ack.assert_awaited_once_with(job=job)
+    handler.on_chunk_complete.assert_awaited_once_with(result)
+    handler.chunk_window.release.assert_called_once_with()
+    assert queue_service.acknowledged == []
 
 @pytest.mark.asyncio
 async def test_worker_pool_processes_chunks_once(
@@ -504,13 +554,13 @@ async def test_worker_pool_processes_chunks_once(
 
         await asyncio.sleep(0)
 
-        return SimpleNamespace(
+        return CrawlChunkResult(
             chunk_index=chunk.index,
             planned=1,
-            acquired=1,
-            successful=1,
+            fetched=1,
+            queued_for_parse=1,
             failed=0,
-            successful_url_hashes=[chunk_id],
+            fetched_url_hashes=[chunk_id],
             failed_url_hashes=[],
         )
 
@@ -535,6 +585,8 @@ async def test_worker_pool_processes_chunks_once(
 
     handler = SitemapCrawlHandler(
         consumer=consumer,
+        chunk_window=SimpleNamespace(release=Mock()),
+        on_chunk_complete=AsyncMock(),
     )
 
     worker_pool = QueueWorkerPool(
@@ -567,4 +619,10 @@ async def test_worker_pool_processes_chunks_once(
         "message-2",
     }
     assert len(queue_service.acknowledged) == 2
-    assert inventory_store.complete_batch.await_count == 2
+    assert handler.on_chunk_complete.await_count == 2
+    assert {
+        result.args[0].fetched_url_hashes[0]
+        for result in handler.on_chunk_complete.await_args_list
+    } == {"hash-1", "hash-2"}
+    assert handler.chunk_window.release.call_args_list == [call(), call()]
+    inventory_store.complete_batch.assert_not_awaited()

@@ -357,7 +357,7 @@ async def invalidate_agent(request, agent_id: str) -> None:
     Forces re-spawn from DB on next access.
     """
     try:
-        registry = request.app.container.agentverse.instance_registry()
+        registry = request.app.container.agentverse.instance_registry
     except Exception:
         logger.warning("[invalidate_agent] instance_registry not available")
         return

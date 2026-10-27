@@ -45,53 +45,54 @@ async def ws_handler(websocket: WebSocket):
         "Joshu-A socket bridge connected.",
     )
 
-    authenticated_user = websocket.scope.get("user")
-    user_id = getattr(authenticated_user, "id", None)
-    channel = user_event_channel(user_id)
+    bridge_connected = False
+    try:
+        authenticated_user = websocket.scope.get("user")
+        user_id = getattr(authenticated_user, "id", None)
 
-    if not user_id:
-        raise RuntimeError(
-            "Authenticated WebSocket has no user_id."
+        if not user_id:
+            raise RuntimeError(
+                "Authenticated WebSocket has no user_id."
+            )
+
+        user_id = str(user_id)
+        channel = user_event_channel(user_id)
+
+        await commbridge.connect(session_id, websocket, send_lock)
+        bridge_connected = True
+        await commbridge.subscribe(
+            channel=channel,
+            socket_id=session_id,
         )
 
-    user_id = str(user_id)
+        set_log_context(
+            session_id=session_id,
+            agent_system_name="joshu-a",
+        )
 
-    await commbridge.connect(session_id, websocket, send_lock)
+        AGENTVERSE_LOGGER.info(
+            LogDomain.SOCKET_BRIDGE,
+            "Joshu-A websocket session starting.",
+        )
+        tenant_id = websocket.scope.get("tenant_id")
 
-    await commbridge.subscribe(
-        channel=channel,
-        socket_id=session_id,
-    )
+        ctx = ConnCtx(
+            session_id=session_id,
+            socket_emitter=socket_emitter,
+            user_id=user_id,
+            agent_id=None,
+            request=websocket,
+            websocket=websocket,
+            tenant_id=tenant_id,
+            agent_system_name="joshu-a",
+        )
+        register_message_events(event_router, ctx)
 
-    set_log_context(
-        session_id=session_id,
-        agent_system_name="joshu-a",
-    )
+        AGENTVERSE_LOGGER.debug(
+            LogDomain.SOCKET_BRIDGE,
+            "Joshu-A message handlers registered.",
+        )
 
-    AGENTVERSE_LOGGER.info(
-        LogDomain.SOCKET_BRIDGE,
-        "Joshu-A websocket session starting.",
-    )
-    tenant_id = websocket.scope.get("tenant_id")
-
-    ctx = ConnCtx(
-        session_id=session_id,
-        socket_emitter=socket_emitter,
-        user_id=user_id,
-        agent_id=None,
-        request=websocket,
-        websocket=websocket,
-        tenant_id=tenant_id,
-        agent_system_name="joshu-a",
-    )
-    register_message_events(event_router, ctx)
-
-    AGENTVERSE_LOGGER.debug(
-        LogDomain.SOCKET_BRIDGE,
-        "Joshu-A message handlers registered.",
-    )
-
-    try:
         while True:
             msg = await websocket.receive_json()
             event = (msg.get("event") or "").lower()
@@ -137,11 +138,12 @@ async def ws_handler(websocket: WebSocket):
     finally:
         try:
             socket_emitter.mark_closed()
-            await commbridge.disconnect(session_id)
-            AGENTVERSE_LOGGER.info(
-                LogDomain.SOCKET_BRIDGE,
-                "Joshu-A socket bridge disconnected.",
-            )
+            if bridge_connected:
+                await commbridge.disconnect(session_id)
+                AGENTVERSE_LOGGER.info(
+                    LogDomain.SOCKET_BRIDGE,
+                    "Joshu-A socket bridge disconnected.",
+                )
         finally:
             clear_log_context()
 
@@ -172,18 +174,18 @@ async def ws_chat_handler(websocket: WebSocket, agent_system_name: str):
     watchdog_task: asyncio.Task | None = None
     agent_id: str | None = None
 
-    authenticated_user = websocket.scope.get("user")
-    user_id = getattr(authenticated_user, "id", None)
-
-    if not user_id:
-        raise RuntimeError("Authenticated WebSocket has no user_id.")
-
-    user_id = str(user_id)
-    channel = user_event_channel(user_id)
-
+    user_id: str | None = None
 
     try:
-        
+        authenticated_user = websocket.scope.get("user")
+        user_id = getattr(authenticated_user, "id", None)
+
+        if not user_id:
+            raise RuntimeError("Authenticated WebSocket has no user_id.")
+
+        user_id = str(user_id)
+        channel = user_event_channel(user_id)
+
         await commbridge.connect(session_id, websocket, send_lock)
         bridge_connected = True
         await commbridge.subscribe(
@@ -279,7 +281,9 @@ async def ws_chat_handler(websocket: WebSocket, agent_system_name: str):
                     LogDomain.SOCKET_BRIDGE,
                     "No websocket handler found.",
                 )
-                await socket_emitter.emit(msg_event, {"error": f"No handler for event '{msg_event}'"})
+                await socket_emitter.emit(
+                    msg_event, {"error": f"No handler for event '{msg_event}'"}
+                )
                 return
 
             try:
@@ -374,8 +378,6 @@ async def ws_chat_handler(websocket: WebSocket, agent_system_name: str):
         )
     finally:
         socket_emitter.mark_closed()
-        if bridge_connected:
-            await commbridge.disconnect(session_id)
         try:
             AGENTVERSE_LOGGER.info(
                 LogDomain.SOCKET_BRIDGE,

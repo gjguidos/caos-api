@@ -172,6 +172,20 @@ class ChatToolV2(BaseTool):
             f"Unsupported ChatToolV2 config: {type(config).__name__}"
         )
 
+    async def _run(
+        self,
+        socket_emitter: Any,
+        *,
+        text: str,
+        history: list[dict[str, str]] | None = None,
+    ) -> dict[str, Any]:
+        """Adapt caller-supplied context to BaseTool's execution contract.
+
+        This performs no capability dispatch or resource access. CPBX callers
+        still enter through their authorized synaptic client and binding.
+        """
+        return await self.provide_context(text=text, history=history)
+
     async def provide_context(
         self,
         *,

@@ -44,6 +44,27 @@ async def test_evicts_every_instance_of_the_agent():
 
 
 @pytest.mark.asyncio
+async def test_evicts_all_sessions_and_continues_after_a_sleep_failure():
+    registry = AgentInstanceRegistry()
+    failing = SimpleNamespace(sleep=AsyncMock(side_effect=RuntimeError("redis gone")))
+    healthy = SimpleNamespace(sleep=AsyncMock())
+    unrelated = SimpleNamespace(sleep=AsyncMock())
+    registry.set("user-1", "agent-1", failing, "session-1")
+    registry.set("user-1", "agent-1", healthy, "session-2")
+    registry.set("user-1", "agent-2", unrelated, "session-1")
+    request = make_request(registry)
+
+    await invalidate_agent(request, "agent-1")
+
+    failing.sleep.assert_awaited_once_with(request)
+    healthy.sleep.assert_awaited_once_with(request)
+    assert not registry.exists("user-1", "agent-1", "session-1")
+    assert not registry.exists("user-1", "agent-1", "session-2")
+    assert registry.get("user-1", "agent-2", "session-1") is unrelated
+    unrelated.sleep.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_a_failing_sleep_still_removes_the_instance():
     registry = AgentInstanceRegistry()
     agent = MagicMock()
