@@ -14,7 +14,7 @@ def build_azure_openai_repositories(cfg: AiModelsConfig) -> dict[str, dict[str, 
     buckets: dict[str, dict[str, OpenAIRepository]] = defaultdict(dict)
 
     if not cfg.is_azure_configured:
-        logger.warning("Azure not configured - skipping.")
+        logger.debug("Azure not configured - skipping.")
         return buckets
 
     logger.info("✅ Azure credentials detected. Building Azure repositories...")

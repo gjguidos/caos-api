@@ -6,6 +6,12 @@ from fastapi import APIRouter, FastAPI
 
 logger = logging.getLogger(__name__)
 
+EXCLUDED_DIRS = {
+    "tests",
+    "test",
+    "__pycache__",
+    ".pytest_cache",
+}
 
 def register_all_routers(app: FastAPI, base_path: str, base_module: str):
     """
@@ -18,7 +24,12 @@ def register_all_routers(app: FastAPI, base_path: str, base_module: str):
         base_module (str): The base Python module name (e.g., "src.domains").
     """
     logger.info(f"registering routes from module {base_module}")
-    for root, _, files in os.walk(base_path):
+    for root, dirs, files in os.walk(base_path):
+        dirs[:] = [
+            directory
+            for directory in dirs
+            if directory not in EXCLUDED_DIRS
+        ]
         for file in files:
             if file.endswith(".py") and not file.startswith("__"):
                 module_path = os.path.join(root, file)

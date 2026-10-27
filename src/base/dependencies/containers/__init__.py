@@ -1,5 +1,4 @@
 from src.base.dependencies.containers.authz_container import AuthzContainer
-from src.base.dependencies.containers.azure_openai_container import AzureOpenAIContainer
 from src.base.dependencies.containers.azure_search_container import AzureSearchContainer
 from src.base.dependencies.containers.blob_storage_container import BlobStorageContainer
 from src.base.dependencies.containers.chromadb_container import ChromaDBContainer
@@ -29,7 +28,6 @@ __all__ = [
     "ChromaDBContainer",
     "AzureSearchContainer",
     "SocketContainer",
-    "AzureOpenAIContainer",
     "LLMContainer",
     "HttpContainer",
     "redis_resource",

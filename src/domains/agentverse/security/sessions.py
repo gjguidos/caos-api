@@ -116,12 +116,31 @@ class RedisAgentSessionAuthority:
     def _field(session_id: str) -> str:
         return hashlib.sha256(session_id.encode()).hexdigest()
 
-    async def _eval(self, script: str, args: list[Any], *, keys: list[str] | None = None) -> Any:
+    async def _eval(
+        self,
+        script: str,
+        args: list[Any],
+        *,
+        keys: list[str] | None = None,
+        timeout: float | None = None,
+    ) -> Any:
         try:
-            async with asyncio.timeout(self._timeout):
-                return await self._repo.eval(script, keys=keys or self._keys, args=args)
+            async with asyncio.timeout(
+                self._timeout if timeout is None else timeout
+            ):
+                return await self._repo.eval(
+                    script,
+                    keys=keys or self._keys,
+                    args=args,
+                )
+        except TimeoutError as exc:
+            raise EventPermissionError(
+                "Genesis session Redis operation timed out"
+            ) from exc
         except Exception as exc:
-            raise EventPermissionError("Genesis session authority unavailable") from exc
+            raise EventPermissionError(
+                "Genesis session authority unavailable"
+            ) from exc
 
     async def _verify(self, token: str) -> _Caller:
         claims = await self._jwt.verify_token(token)
@@ -389,6 +408,7 @@ return 1
         fields = await self._eval(
             "return redis.call('ZRANGEBYSCORE', KEYS[2], '-inf', ARGV[1], 'LIMIT', 0, 100)",
             [self._clock()],
+            timeout=5.0,
         )
         failures = []
         for field in fields:
