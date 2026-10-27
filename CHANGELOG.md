@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.0-alpha.6](https://github.com/gjguidos/caos-api/compare/v0.1.0-alpha.5...v0.1.0-alpha.6) (2026-10-27)
+
+### 🚀 Features
+
+* **genesis:** add v0.2 communication history and runtime routing ([7bb5f7a](https://github.com/gjguidos/caos-api/commit/7bb5f7aee4b5fc8afeedee9be547198979087cda))
+* **genesis:** add v0.3 governed Adam LLM responses ([1207b1f](https://github.com/gjguidos/caos-api/commit/1207b1f9ce202416f511321f742e0c3292aae80e))
+* **genesis:** establish secure agent lifecycle v0.1.0 ([a503c4c](https://github.com/gjguidos/caos-api/commit/a503c4cc237d5ed58b58e85587932926510dfda1))
+* **governance:** establish resource ownership and safe client projections ([2db4ccd](https://github.com/gjguidos/caos-api/commit/2db4ccd10b131f8a6790cbe2f71b94a005626658))
+* **ncsc:** introduce synaptic capability registry ([24571a1](https://github.com/gjguidos/caos-api/commit/24571a1f98d1999d31a525a2cdaa183c78d645ec))
+
+### 🐛 Bug Fixes
+
+* **genesis:** harden startup and session authority timeouts ([2edf4d7](https://github.com/gjguidos/caos-api/commit/2edf4d73b73852402fae898c2cb7de4df073d584))
+* **genesis:** stabilize tool execution and runtime lifecycle ([6530228](https://github.com/gjguidos/caos-api/commit/6530228c5524f50d6df06b51de99a6a8da3f4619))
+
 ## [0.1.0-alpha.5](https://github.com/gjguidos/caos-api/compare/v0.1.0-alpha.4...v0.1.0-alpha.5) (2026-10-24)
 
 ### 🐛 Bug Fixes
