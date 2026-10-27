@@ -88,7 +88,7 @@ Important principles:
 - Prefer the established `Registry[T]` conventions (decorator registration, metadata, lookup, catalog and initialization), without forcing inappropriate key or replacement semantics onto a new registry.
 - Generic registry keys are canonicalized. NCSC signals such as `personality.infuse`, `context.delta.build`, and `prompt.build` are **exact dotted addresses**; preserve them without collisions.
 - The generic registry supports last-write-wins registration for module reloads. Security-sensitive synaptic bindings must reject conflicting providers and use a controlled registration lifecycle.
-- Distinguish registries by ownership: AOSA component registries describe agents/tools/workflows; `CognitiveEventRegistry` defines broker event contracts and subscriptions; a proposed `SynapticRegistry` binds addressable capability handlers. Do not duplicate event contracts or message brokers.
+- Distinguish registries by ownership: AOSA component registries describe agents/tools/workflows; `CognitiveEventRegistry` defines broker event contracts and subscriptions; `SynapticRegistry` binds addressable capability handlers. Do not duplicate event contracts or message brokers.
 
 ### NCSC PBX evolution (design target, not assumed implemented)
 
@@ -209,7 +209,15 @@ For codebase investigation, use the CAOS research agent.
 
 For release preparation, verification, or promotion, use the CAOS release skill.
 
-For registry changes, inspect existing registry implementations and tests first; a dedicated Registry Skill is planned but should not be assumed present.
+For registry changes, use `.agents/skills/aosa-registry/SKILL.md` and inspect the existing registry implementations and tests first.
+
+### Architecture knowledge discovery
+
+For conceptual, architectural, security and best-practice questions, use `.agents/skills/caos-architect/SKILL.md` and `docs/architecture/README.md`. Keep using the existing `.agents/research.md` CAOS research agent for deeper read-only source investigation and the specialist skills for engineering procedures.
+
+Ground answers in current source, wiring and test evidence; distinguish implemented behavior from documented intent and proposals. THOTH is a planned privileged knowledge citizen, not an installed runtime or a grant of repository access. This knowledge foundation introduces no runtime tools, registry or authorization mechanism.
+
+CAOS has complementary **Exoteric** (`docs/architecture/exoteric/README.md`) enterprise/engineering and **Esoteric** (`docs/architecture/esoteric/README.md`) research/philosophical perspectives on the same system, not separate implementations or access tiers. Distinguish ancient sources, modern interpretations, CAOS hypotheses and technical evidence. Symbolic archetypes and THOTH's proposed cognitive modes never establish authority; existing authorization boundaries still govern access.
 
 ## Important references
 
@@ -223,5 +231,7 @@ For registry changes, inspect existing registry implementations and tests first;
 - `src/base/events/v2/` — existing event contracts, policy, registry and runtime
 - `docs/RELEASE_WORKFLOW.md` — release process
 - `.github/workflows/release.yml` — release automation
+- `docs/architecture/README.md` — architecture knowledge index and evidence entry points
+- `docs/architecture/decisions/ADR-0001-thoth-privileged-knowledge.md` — proposed THOTH boundaries
 
 Always inspect these files before relying on assumptions about their current implementation.
