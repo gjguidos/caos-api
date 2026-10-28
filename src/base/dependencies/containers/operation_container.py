@@ -9,6 +9,7 @@ from src.base.operations.repository import (
 )
 from src.base.operations.runner import OperationRunner
 from src.base.operations.service import OperationService
+from src.base.operations.v2.mongo_managed_repository import MongoManagedOperationRepository
 from src.base.operations.v2.mongo_ownership_repository import MongoOwnershipRepository
 from src.base.operations.v2.mongo_repository import MongoOperationRepository
 
@@ -28,6 +29,11 @@ class OperationsContainer(containers.DeclarativeContainer):
 
     ownership_repository_v2 = providers.Singleton(
         MongoOwnershipRepository,
+        mongodb_repository=mongodb_repository,
+    )
+
+    managed_operation_repository_v2 = providers.Singleton(
+        MongoManagedOperationRepository,
         mongodb_repository=mongodb_repository,
     )
 

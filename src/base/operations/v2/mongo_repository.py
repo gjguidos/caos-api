@@ -98,7 +98,13 @@ class MongoOperationRepository:
         validate_successor(previous, operation)
         collection = await self._collection()
         result = await collection.replace_one(
-            {"_id": str(operation.operation_id), "revision": expected_revision},
+            {
+                "_id": str(operation.operation_id),
+                "schema_version": SCHEMA_VERSION,
+                "revision": expected_revision,
+                "snapshot": {"$exists": False},
+                "execution": {"$exists": False},
+            },
             snapshot_to_document(operation),
             upsert=False,
         )

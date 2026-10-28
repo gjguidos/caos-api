@@ -381,7 +381,13 @@ async def test_cas_filter_no_upsert_and_late_conflict() -> None:
     with pytest.raises(RevisionConflict):
         await repository.commit(running(), expected_revision=0)
     collection.replace_one.assert_awaited_once_with(
-        {"_id": str(pending().operation_id), "revision": 0},
+        {
+            "_id": str(pending().operation_id),
+            "schema_version": 1,
+            "revision": 0,
+            "snapshot": {"$exists": False},
+            "execution": {"$exists": False},
+        },
         snapshot_to_document(running()),
         upsert=False,
     )

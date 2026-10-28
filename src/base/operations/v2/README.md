@@ -2,7 +2,7 @@
 
 **Status:** OPS2-01 contracts are the accepted baseline for OPS2-02. The bounded repository implementation below does not establish a deployed OPS V2 runtime, approve a broader supervisor design, or accept/supersede an ADR.
 
-**Scope:** Pydantic v2 snapshots, unchanged transition guards, OPS2-02 storage and isolated OPS2-03 ownership under `src/base/operations/v2/`. No runner, supervisor, broker, worker, workflow scheduling, LLM or authorization logic. UTU remains responsible for authorization at future integration boundaries. These models neither mint nor deserialize execution permits.
+**Scope:** Pydantic v2 snapshots, unchanged transition guards, OPS2-02 storage, isolated OPS2-03 ownership and OPS2-04B managed aggregate persistence under `src/base/operations/v2/`. No runner, supervisor, broker, worker, workflow scheduling, LLM or authorization logic. UTU remains responsible for authorization at future integration boundaries. These models neither mint nor deserialize execution permits.
 
 The OPS2-01 sections below record the original contract slice and its limitations at that stage. References there to missing persistence/CAS are superseded only by the bounded [OPS2-02 implementation](#ops2-02--durable-operation-repository), not by a recovery runtime or worker fence.
 
@@ -371,3 +371,195 @@ boundary with these properties:
 V1 remains process-local and separately wired, including existing crawler supervision and
 cleanup behavior. No executor loop, scheduling, automatic recovery, RabbitMQ, WebSocket,
 worker management, agent lifecycle or authorization-service changes are included.
+
+## OPS2-04B — Managed Aggregate and Atomic Fencing
+
+**Implemented for review**, following the accepted OPS2-04A direction. This is a
+persistence API, not an executor. OPS2-01 models/transitions and OPS2-03 adapters are
+unchanged. Earlier OPS2-03 statements about unfenced OPS2-02 commits still apply to
+schema-v1 records; managed schema-v2 records have the separate boundary described here.
+
+### Schema, authority and API
+
+[ManagedOperation](managed.py) is a frozen, strictly restored envelope in the existing
+`operations_v2` collection, addressed by the operation UUID string:
+
+```text
+_id
+schema_version: 2
+snapshot: complete unchanged OperationRecord JSON
+execution:
+  generation, owner_id, attempt_id, status, mode
+  acquired_at, updated_at, lease_expires_at, released_at
+last_state_change:
+  command_id, action, request_hash, generation, attempt_id
+  previous_revision, resulting_revision
+```
+
+There is **no top-level revision**. Snapshot timestamps remain ISO strings retaining
+microseconds; execution clocks are UTC BSON dates with millisecond precision. Required
+fields, unknown fields, identities, epoch/snapshot consistency, and the receipt are
+validated on restoration; missing values are not repaired. The only required index is
+the automatic unique `_id_` index. No TTL, deletion, global counter or migration is added.
+
+`ExecutionEpoch` retains a signed-int64 generation (zero only before first activation),
+opaque owner-incarnation identity and current attempt binding. Status is `idle`, `active`,
+`released` or `closed`; mode is `execute` or `reconcile` after acquisition. Every acquisition
+increments the generation; renewal/release/outcomes never reset it. Exhaustion fails closed.
+An active record can still be expired. Lease duration uses OPS2-03's strict 1..86,400,000ms
+bound. Owner/token metadata coordinates trusted callers; it authenticates nobody and
+grants no UTU permission.
+
+[ManagedOperationRepository](managed.py) and
+[MongoManagedOperationRepository](mongo_managed_repository.py) expose:
+
+- `create(snapshot)`: unique insertion of a **new pending** operation with idle epoch.
+  No adoption/import of schema-v1, running or terminal records.
+- `activate(id, expected_revision, expected_generation, attempt_id, owner_id, lease_ms,
+  at, command_id)`: atomically apply the existing `start_attempt` and acquire an execute
+  epoch. Pending and explicit retry-pending intent are eligible; numbering/history stay
+  governed by OPS2-01. `at` is a lifecycle timestamp, never the lease clock.
+- `renew(id, attempt_id, owner_id, generation, lease_ms)`: extend using
+  `max(current_expiry, $$NOW + duration)`, without changing lifecycle revision or receipt.
+- `commit_outcome(snapshot, expected_revision, attempt_id, owner_id, generation,
+  command_id)`: accept only a legal attempt outcome successor in execute mode. Atomically
+  store the snapshot/receipt and retire authority: terminal -> `closed`, retry-pending ->
+  `released`. No task or retry is started.
+- `release(id, attempt_id, owner_id, generation)`: require live matching authority;
+  retain generation, snapshot and current unresolved attempt. A released running attempt
+  cannot be replayed through `activate`.
+- `takeover(id, expected_revision, expected_generation, attempt_id, owner_id, lease_ms)`:
+  acquire expired/released **unresolved** work with a new generation in reconcile mode;
+  preserve the operation revision, attempt and receipt. It cannot start a new attempt or
+  commit execution outcomes. Reconciliation can renew/release its own lease only in this
+  slice; verified resolution is deferred to OPS2-04C.
+- `inspect(id)`: restore authoritative snapshot and epoch, not a promise of future validity.
+
+The separate singleton `Container.operations.managed_operation_repository_v2` reuses
+CAOS's DI-owned Mongo client. Nothing starts it as a runner or consumes it from a route.
+The separate OPS2-03 collection is **not consulted or updated** for managed authority.
+Its legacy API remains unchanged and can still store unrelated ownership records;
+those records are not grants against a managed aggregate. There are no dual-authority
+writes or ownership mirroring.
+
+### Exact conditional-write boundary
+
+All updates are one `find_one_and_update` with an update pipeline, `upsert=False` and
+return-after. All predicates include `_id`, integer `schema_version=2`, matching
+`snapshot.operation_id`, and absence of a top-level `revision`.
+
+| Command | Additional atomic predicates | Atomic changes |
+| --- | --- | --- |
+| Activate | expected snapshot revision and epoch generation; snapshot pending/retry-pending; epoch idle/released; epoch update time null or <= `$$NOW` | validated successor snapshot, generation +1, new execute lease, receipt |
+| Renew/release | matching owner, generation, epoch attempt and snapshot's latest attempt; unresolved snapshot; active epoch; expiry > `$$NOW`; epoch update time <= `$$NOW` | only dotted execution lease/status fields; no snapshot replacement |
+| Outcome | all renew/release predicates plus expected snapshot revision and `mode=execute` | validated outcome snapshot, retired epoch, receipt |
+| Takeover | expected snapshot revision/generation; matching epoch/latest attempt; unresolved snapshot; active/released epoch; released OR expiry <= `$$NOW`; epoch update time <= `$$NOW` | generation +1, new reconciliation lease, no snapshot revision change |
+
+Pre-reads validate snapshots and produce typed failures, **not authorization to write**.
+For state changes, existing OPS2-01 successor validation is bound to its exact predecessor
+by lifecycle revision CAS. Authority, expiry, attempt, generation and revision are checked
+again in the actual update predicate. Outcome updates do not overwrite a concurrent
+renewal's expiry; heartbeat writes do not contend on lifecycle revision. No global lock
+serializes distinct operations, although writes for one aggregate share its document.
+
+If completion wins before takeover, lifecycle revision and epoch retirement change
+together: a takeover based on the old state fails and must inspect the accepted outcome.
+If takeover wins, the old outcome/renew/release generation cannot match, even though
+lifecycle revision has not changed. Renewal-first prevents an expiry takeover from using
+an obsolete expiry; takeover-first prevents stale renewal. Release-first rejects later
+execution outcomes but preserves unresolved work rather than permitting duplicate runs.
+
+Creation is an atomic unique insert of an idle record, not acquisition. Acquisition and
+renewal responses additionally observe persisted authority with database time; an expired,
+released or superseded grant is rejected without undoing the write, resetting history or
+retrying. This establishes validity at observation only, not after return. A delayed
+activation can therefore fail its response while its started attempt remains unresolved.
+
+### Durability, failures and feature requirements
+
+The managed adapter uses primary/majority reads and `w=majority, j=true, wtimeout=5000`
+writes. It never closes the shared client, creates transactions, or retries a command.
+Native MongoDB update pipelines, `$expr`, `$$NOW`, `$arrayElemAt`, date arithmetic and
+atomic find-and-update are required. The supported target is the existing native MongoDB
+5.0+ baseline; tests run against MongoDB 8.0. Unsupported commands fail closed; no weaker
+client-clock or multi-document fallback exists. Cosmos compatibility is **unverified**:
+API/version, conditional pipeline support, server time, partitioning and durability must
+be proven for the actual deployment before using this adapter.
+
+`$$NOW` is the server-time value for the command, stable through the pipeline. It is not
+a continuously advancing clock or a guarantee at acknowledgement. Server clock jumps,
+queued/stalled commands and failover latency still require operational qualification;
+generation predicates fence supersession independently of caller clocks.
+
+Typed failures include existing missing/duplicate/revision/obsolete-token/owner/expired/
+released exceptions plus `AttemptConflict`, `ReconciliationOnly`, `InvalidManagedRequest`,
+and `CorruptManagedOperation`. A failed conditional write may use one diagnostic read;
+it never weakens the predicate or automatically retries.
+
+A driver error during a write raises `AmbiguousManagedWrite`, carrying operation ID and
+state-command ID when supplied, with the original exception chained. This conservatively
+includes write-concern errors and lost responses; acceptance is not assumed to have failed.
+Inspect snapshot/history, generation and `last_state_change` before any further action.
+The bounded receipt contains the retained command UUID and SHA-256 canonical request hash,
+action, attempt, generation and resulting revision. Lease mutations preserve it, but later
+state mutations replace it. It is not an unlimited deduplication/audit ledger; missing or
+overwritten proof leaves uncertainty, never permission to replay effects. No application
+retry is added; infrastructure driver settings remain in force.
+
+### Legacy isolation and deployment cutover
+
+OPS2-02's protocol and schema-v1 snapshots remain unchanged. Its only behavioral hardening
+is an explicit replacement predicate requiring `schema_version=1`, the expected numeric
+top-level revision, and **no `snapshot` or `execution` fields**. Its exact-filter unit test
+is updated accordingly. Unsupported managed reads fail closed rather than being flattened.
+
+Even an already-running **pre-upgrade** writer filtering only `_id` and numeric top-level
+`revision` cannot match the new envelope, which has no such revision. Never introduce a
+compatibility revision alias. An `_id`-only administrative replacement/deletion or raw
+database mutation can still bypass the protocol; these APIs are trusted infrastructure,
+not a database access-control system.
+
+No records are converted: shared `_id` uniqueness rejects managed creation over schema v1
+and legacy creation over schema v2. Existing schema-v1 records remain unmanaged. Old
+binaries cannot read managed records; deploy/route managed work only to upgraded consumers.
+Any future migration must explicitly exclude old writers, preserve lifecycle history and
+generation high-water marks, and reconcile unresolved work. Do not implement cutover by
+deleting/reinserting records or copying legacy leases while their writers remain active.
+Rollback must retain envelopes, not flatten them. V1 operation/crawler providers and
+behavior are unchanged.
+
+### Executed verification
+
+```sh
+docker compose exec -T -e OPS2_MONGO_INTEGRATION=1 api python -m pytest -q src/base/operations/v2/tests src/domains/agentverse/tests/operations/test_operation_repository.py
+```
+
+Result: **423 passed, 9 skipped**, with 11 existing Pydantic deprecation warnings. The
+skips are unchanged memory cases for Mongo-only tests; their Mongo counterparts ran.
+[Managed tests](tests/test_managed_repository.py) use isolated collections and independent
+adapters for competing activation/outcomes, completion/takeover orderings, renewal/takeover,
+release/completion, expiration after prevalidation, stale credentials at an unchanged
+lifecycle revision, terminal exclusion, attempt validation, history/retry numbering,
+independent renewal while another operation is blocked, and heartbeat/outcome interleaving.
+They also exercise real old/hardened replacement predicates against managed envelopes,
+strict restoration/corruption, separate-ownership nonauthority, retained generation
+exhaustion, delayed grant observation and an actually applied Mongo outcome followed by
+an injected lost-response error. Test-only raw cutover/corruption setup is not a migration
+feature. Fault injection does not prove real replica-failover or power-loss behavior.
+
+### OPS2-04C responsibilities (not implemented)
+
+No executor loop, scheduling, recovery, external effects, messaging, WebSockets or agent
+lifecycle changes are included. This milestone does not expose generic managed snapshot
+updates, cancellation/control-plane commands, or reconciliation outcome assertions.
+Those need narrowly authorized interfaces and truthful outcome/recovery policy; existing
+OPS2-01 functions and cancellation semantics remain unchanged.
+
+OPS2-04C must decide dispatch/start acknowledgement, uncertain-effect reconciliation,
+verified outcome admission, cancellation/UTU revocation integration, shutdown draining,
+receipt retention/idempotency policy, backups/disaster fencing namespaces and managed
+migration. Old executors can still perform external effects: sinks require appropriate
+fencing/idempotency enforcement and trusted UTU/NCSC context. Per-operation generations
+are not global resource fences. Expiration/release proves neither quiescence nor exactly-once
+execution. Large attempt histories retain Mongo's document-size/write-cost limits; heartbeat
+frequency, contention, failure timing and production durability need workload/fault testing.
