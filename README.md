@@ -212,6 +212,7 @@ Specialized cognitive agents, including the proposed **Anunnaki cognition bearer
 The canonical architecture-review guidance is [AOSA Engineering Principles](docs/architecture/exoteric/AOSA_ENGINEERING_PRINCIPLES.md). In brief:
 
 - **CAOS uses CAOS:** prefer its governed, reusable capabilities for internal work, with a minimal trusted kernel and optional reasoning; see [architectural self-application](docs/architecture/exoteric/AOSA_ENGINEERING_PRINCIPLES.md#15-architectural-self-application--caos-uses-caos).
+- **Agents are cognitive operating environments:** persistent identities consume and expose registered capabilities through bounded, observable composition, reusing CAOS governance rather than separate trusted kernels; LLM reasoning remains optional. See [cognitive OS recursivity](docs/architecture/exoteric/AOSA_ENGINEERING_PRINCIPLES.md#16-cognitive-os-recursivity--agents-as-cognitive-operating-environments).
 - Keep capability contracts independent of transport, provider and deployment topology.
 - Preserve explicit identity, tenant isolation, authorization and independent lifecycles.
 - Design for horizontal scale and bounded resources; optimize from measurements.

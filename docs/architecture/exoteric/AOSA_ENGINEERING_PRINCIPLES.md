@@ -197,6 +197,42 @@ a declared version is not executable retention. The runtime must enforce exact r
 availability and compatibility. Self-application does not justify a new registry,
 mandatory distributed layer or optimization without measured evidence.
 
+### 16. Cognitive OS Recursivity — Agents as Cognitive Operating Environments
+
+**An agent is a miniature cognitive OS:** a cognitive operating environment that composes
+governed capabilities around persistent Agent Soul and identity. Its tools are its
+**registered, versioned applications**, not necessarily separate processes or LLM calls.
+Agent Soul and logical identity persist independently of runtime placement, worker
+incarnation or client connection; reconstruction and activation still require explicit
+lifecycle and authorization checks.
+
+Agents can both **consume and expose capabilities**. A tool may be implemented by another
+agent, a workflow, a service or a deterministic function, while retaining its logical
+capability identity and contract. This permits recursive composition without requiring
+every agent to expose every internal tool or every capability to become an agent.
+LLM reasoning is optional, **including for first-class system citizens**; neither citizen
+identity nor this cognitive-OS model requires an autonomous reasoning loop.
+
+**UTU authorization remains authoritative at every composition boundary.** Preserve
+trusted principal and tenant context, delegated authority, resource scope, correlation
+and causation through nested calls. Exposing a capability, invoking another agent or
+sharing context must not widen permissions. NCSC/CPBX enforces its supplied invocation
+policy; recursive composition cannot bypass that enforcement or resource-access checks.
+
+**Recursion must be bounded and observable.** Define depth, fan-out, concurrency, time and
+resource budgets, loop prevention, cancellation and failure behavior. Trace nested
+capabilities and their versions, evidence and outcomes so reviewers can explain who
+invoked what and under which authority. Composition is not permission for uncontrolled
+recursion or an independent scheduler/orchestrator at every level.
+
+Agents **reuse CAOS infrastructure**: established tool specifications, capability
+registries, persistence adapters, DI and trusted governance/lifecycle mechanisms. They do
+not instantiate independent trusted kernels. This applies
+[architectural self-application](#15-architectural-self-application--caos-uses-caos) at the
+agent scale, preserving its kernel exception and executable-version qualification.
+The cognitive-OS description is an engineering composition model, not a claim that every
+such mechanism is implemented, deployed or equivalent to a biological mind.
+
 ## Architecture-review checklist
 
 - Before adding an internal process, service, manager or controller: can this responsibility
@@ -206,6 +242,8 @@ mandatory distributed layer or optimization without measured evidence.
 - Are we reusing existing CAOS contracts, infrastructure and lifecycle ownership?
 - Can it scale without binding logical identities to physical processes?
 - Are identity, tenant, authority, delegation and resource-access boundaries preserved?
+- For recursive agent composition, are persistent identity and UTU enforcement preserved
+  at every boundary, with observable resource/depth limits and no duplicated trusted kernel?
 - Is the proposed pattern solving a real problem, with simpler alternatives considered?
 - Are optimizations supported by evidence and bounded acceptance criteria?
 - Does this help deliver the next working vertical slice, currently `#weather`?
