@@ -3,7 +3,7 @@
 import hashlib
 import json
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Final
 from uuid import UUID
 
 from bson.codec_options import CodecOptions
@@ -12,6 +12,15 @@ from pymongo.errors import DuplicateKeyError, PyMongoError
 from pymongo.read_concern import ReadConcern
 from pymongo.write_concern import WriteConcern
 
+from src.base.operations.v2.admission import (
+    AdmissionRecord,
+    AuthorizationProvenance,
+    CapabilityRef,
+    ExecutionDescriptor,
+    InlineInput,
+    InputReference,
+    RecoveryPolicyRef,
+)
 from src.base.operations.v2.managed import (
     AmbiguousManagedWrite,
     AttemptConflict,
@@ -50,6 +59,9 @@ from src.base.operations.v2.transitions import InvalidTransition, start_attempt
 from src.base.repositories.mongodb_repository import MongoDBRepository
 
 SCHEMA_VERSION = 2
+ADMITTED_SCHEMA_VERSION: Final = 3
+# Fenced commands apply to both managed schemas; legacy (v1) writers match neither.
+MANAGED_SCHEMA_VERSIONS = (SCHEMA_VERSION, ADMITTED_SCHEMA_VERSION)
 _CODEC = CodecOptions(tz_aware=True, tzinfo=UTC)
 _UNRESOLVED = [OperationState.RUNNING.value, OperationState.CANCEL_REQUESTED.value]
 _EPOCH_DATES = ("acquired_at", "updated_at", "lease_expires_at", "released_at")
@@ -74,9 +86,13 @@ def managed_from_document(document: dict[str, Any]) -> ManagedOperation:
     try:
         data = dict(document)
         identity = data.pop("_id")
-        if type(data["schema_version"]) is not int or data["schema_version"] != SCHEMA_VERSION:
-            raise ValueError("Not a schema-v2 managed operation; no implicit migration")
-        if set(data) != set(ManagedOperation.model_fields):
+        version = data["schema_version"]
+        if type(version) is not int or version not in MANAGED_SCHEMA_VERSIONS:
+            raise ValueError("Not a managed operation schema; no implicit migration")
+        fields = set(ManagedOperation.model_fields)
+        if version == SCHEMA_VERSION:
+            fields.discard("admission")
+        if set(data) != fields:
             raise ValueError("Incomplete or unknown aggregate fields")
         # Preserve OPS2-02's complete snapshot/attempt restoration checks.
         snapshot_from_document({"_id": identity, "schema_version": 1, **data["snapshot"]})
@@ -89,6 +105,8 @@ def managed_from_document(document: dict[str, Any]) -> ManagedOperation:
         receipt = data["last_state_change"]
         if receipt is not None and set(receipt) != set(StateChangeReceipt.model_fields):
             raise ValueError("Incomplete or unknown receipt fields")
+        if version == ADMITTED_SCHEMA_VERSION:
+            _require_admission_fields(data["admission"])
         record = ManagedOperation.model_validate_json(
             json.dumps(data, default=_date_json), strict=True
         )
@@ -97,6 +115,34 @@ def managed_from_document(document: dict[str, Any]) -> ManagedOperation:
         return record
     except (ValueError, TypeError, KeyError) as exc:
         raise CorruptManagedOperation("Invalid managed operation envelope") from exc
+
+
+def _require_admission_fields(admission: Any) -> None:
+    def exact(value: Any, fields: set[str]) -> dict[str, Any]:
+        if not isinstance(value, dict) or set(value) != fields:
+            raise ValueError("Incomplete or unknown admission fields")
+        return value
+
+    record = exact(admission, set(AdmissionRecord.model_fields))
+    descriptor = exact(record["descriptor"], set(ExecutionDescriptor.model_fields))
+    for name, model in (
+        ("capability", CapabilityRef),
+        ("authorization", AuthorizationProvenance),
+        ("recovery_policy", RecoveryPolicyRef),
+    ):
+        exact(descriptor[name], set(model.model_fields))
+    source = descriptor["input"]
+    kind = source.get("kind") if isinstance(source, dict) else None
+    exact(source, set((InlineInput if kind == "inline" else InputReference).model_fields))
+
+
+def managed_collection(collection: Any) -> Any:
+    return collection.with_options(
+        codec_options=_CODEC,
+        read_preference=ReadPreference.PRIMARY,
+        read_concern=ReadConcern("majority"),
+        write_concern=WriteConcern(w="majority", j=True, wtimeout=5000),
+    )
 
 
 def _expected(revision: int, generation: int) -> None:
@@ -128,12 +174,7 @@ class MongoManagedOperationRepository:
 
     async def _collection(self) -> Any:
         collection = await self._mongodb_repository.get_collection(self._collection_name)
-        return collection.with_options(
-            codec_options=_CODEC,
-            read_preference=ReadPreference.PRIMARY,
-            read_concern=ReadConcern("majority"),
-            write_concern=WriteConcern(w="majority", j=True, wtimeout=5000),
-        )
+        return managed_collection(collection)
 
     async def _read(self, operation_id: UUID) -> tuple[ManagedOperation, datetime]:
         validate_identity(operation_id)
@@ -175,7 +216,7 @@ class MongoManagedOperationRepository:
     def _base(operation_id: UUID) -> dict[str, Any]:
         return {
             "_id": str(operation_id),
-            "schema_version": SCHEMA_VERSION,
+            "schema_version": {"$in": list(MANAGED_SCHEMA_VERSIONS)},
             "snapshot.operation_id": str(operation_id),
             "revision": {"$exists": False},
         }

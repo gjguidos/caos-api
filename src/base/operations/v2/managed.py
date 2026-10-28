@@ -2,11 +2,19 @@
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Annotated, Literal, Protocol, Self
+from typing import Annotated, Any, Literal, Protocol, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+    model_validator,
+)
 
+from src.base.operations.v2.admission import ADMISSION_PRODUCER, AdmissionRecord, discovery_key
 from src.base.operations.v2.models import (
     AttemptState,
     NonBlankText,
@@ -129,12 +137,42 @@ class StateChangeReceipt(BaseModel):
 
 
 class ManagedOperation(BaseModel):
+    """Schema 2: OPS2-04B aggregate. Schema 3: the same aggregate plus admission.
+
+    Versions are explicit; a schema-2 record is never upgraded in place.
+    """
+
     model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
 
-    schema_version: Literal[2]
+    schema_version: Literal[2, 3]
     snapshot: OperationRecord
     execution: ExecutionEpoch
     last_state_change: StateChangeReceipt | None
+    admission: AdmissionRecord | None = None
+
+    @model_serializer(mode="wrap")
+    def _schema_shape(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data = handler(self)
+        if self.admission is None:
+            data.pop("admission", None)  # Schema 2 serializes exactly as in OPS2-04B.
+        return data
+
+    @model_validator(mode="after")
+    def consistent_admission(self) -> Self:
+        if (self.schema_version == 3) != (self.admission is not None):
+            raise ValueError("Only schema-3 aggregates carry, and require, admission")
+        if self.admission is not None:
+            operation, descriptor = self.snapshot, self.admission.descriptor
+            if (
+                operation.kind != descriptor.capability.signal
+                or operation.producer != ADMISSION_PRODUCER
+                or operation.correlation_id != descriptor.correlation_id
+                or operation.causation_id != descriptor.causation_id
+            ):
+                raise ValueError("Admitted snapshot metadata must match its descriptor")
+            if self.admission.discovery_key != discovery_key(operation):
+                raise ValueError("Discovery key must derive from operation identity and creation")
+        return self
 
     @model_validator(mode="after")
     def consistent_aggregate(self) -> Self:

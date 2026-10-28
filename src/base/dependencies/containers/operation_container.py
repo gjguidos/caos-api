@@ -9,6 +9,7 @@ from src.base.operations.repository import (
 )
 from src.base.operations.runner import OperationRunner
 from src.base.operations.service import OperationService
+from src.base.operations.v2.mongo_admission_repository import MongoOperationAdmissionRepository
 from src.base.operations.v2.mongo_managed_repository import MongoManagedOperationRepository
 from src.base.operations.v2.mongo_ownership_repository import MongoOwnershipRepository
 from src.base.operations.v2.mongo_repository import MongoOperationRepository
@@ -34,6 +35,12 @@ class OperationsContainer(containers.DeclarativeContainer):
 
     managed_operation_repository_v2 = providers.Singleton(
         MongoManagedOperationRepository,
+        mongodb_repository=mongodb_repository,
+    )
+
+    # OPS2-04C.1: same collection as the managed aggregate; not consumed by any route yet.
+    admission_repository_v2 = providers.Singleton(
+        MongoOperationAdmissionRepository,
         mongodb_repository=mongodb_repository,
     )
 

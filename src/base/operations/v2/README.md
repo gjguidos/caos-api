@@ -2,7 +2,7 @@
 
 **Status:** OPS2-01 contracts are the accepted baseline for OPS2-02. The bounded repository implementation below does not establish a deployed OPS V2 runtime, approve a broader supervisor design, or accept/supersede an ADR.
 
-**Scope:** Pydantic v2 snapshots, unchanged transition guards, OPS2-02 storage, isolated OPS2-03 ownership and OPS2-04B managed aggregate persistence under `src/base/operations/v2/`. No runner, supervisor, broker, worker, workflow scheduling, LLM or authorization logic. UTU remains responsible for authorization at future integration boundaries. These models neither mint nor deserialize execution permits.
+**Scope:** Pydantic v2 snapshots, unchanged transition guards, OPS2-02 storage, isolated OPS2-03 ownership, OPS2-04B managed aggregate persistence and OPS2-04C.1 admission/discovery under `src/base/operations/v2/`. No runner, supervisor, worker, workflow scheduling, LLM or authorization logic; the only broker use is the optional OPS2-04C.1 dispatch-notice adapter over the existing Event V2 runtime. UTU remains responsible for authorization at future integration boundaries. These models neither mint nor deserialize execution permits.
 
 The OPS2-01 sections below record the original contract slice and its limitations at that stage. References there to missing persistence/CAS are superseded only by the bounded [OPS2-02 implementation](#ops2-02--durable-operation-repository), not by a recovery runtime or worker fence.
 
@@ -446,7 +446,10 @@ writes or ownership mirroring.
 
 All updates are one `find_one_and_update` with an update pipeline, `upsert=False` and
 return-after. All predicates include `_id`, integer `schema_version=2`, matching
-`snapshot.operation_id`, and absence of a top-level `revision`.
+`snapshot.operation_id`, and absence of a top-level `revision`. Since
+[OPS2-04C.1](#ops2-04c1--durable-admission-and-discovery) the version predicate is
+`schema_version ∈ {2, 3}`, so these commands also fence admitted aggregates; schema 1
+still never matches.
 
 | Command | Additional atomic predicates | Atomic changes |
 | --- | --- | --- |
@@ -563,3 +566,155 @@ fencing/idempotency enforcement and trusted UTU/NCSC context. Per-operation gene
 are not global resource fences. Expiration/release proves neither quiescence nor exactly-once
 execution. Large attempt histories retain Mongo's document-size/write-cost limits; heartbeat
 frequency, contention, failure timing and production durability need workload/fault testing.
+
+## OPS2-04C.1 — Durable Admission and Discovery
+
+**Implemented for review** on `feature/ops-v2` after `bd2da90`. Admission and discovery
+only: no worker, executor, capability execution, recovery orchestration, channel runtime
+or new authority. OPS2-01 transitions and OPS2-03 ownership are unchanged; OPS2-04B
+fencing commands are unchanged except that they also match schema-3 aggregates.
+
+### Contracts
+
+[admission.py](admission.py) defines frozen, extra-forbidding, versioned contracts:
+
+- `ExecutionDescriptor` (`descriptor_version: 1`): `CapabilityRef` (exact signal, exact
+  version, provider, executable `module:qualname`), validated input, trusted `tenant_id`/
+  `requester_id`, `AuthorizationProvenance`, `RecoveryPolicyRef`, correlation/causation.
+  Identity must equal the provenance identity. It grants nothing.
+- Input is either `InlineInput` (a JSON object stored as immutable canonical text with a
+  SHA-256 digest, at most 64 KiB) or `InputReference` (content-addressed URI + digest +
+  size; userinfo, query strings and fragments are rejected so signed URLs cannot be stored).
+  The service admits a reference only through a configured `InputReferenceVerifier` that
+  confirms existence, tenant access, digest/size and retention in an approved immutable
+  store. None exists yet, so references are **rejected** (fail closed); only inline input
+  is admissible today.
+- `AuthorizationProvenance` (`authority: "utu"`) records tenant, principal, subject, UTU
+  policy version and a one-way `evidence_digest` of the verified permit scope, versions and
+  signal. Session IDs, permit versions, permits, JWTs and credentials are **not** persisted;
+  the digest cannot be reconstructed into an `ExecutionPermit`.
+- `MANUAL_REVIEW_V1` (`ops.recovery.manual_review@1`) is the only approved recovery policy:
+  unresolved work is reconciled or reviewed, never blindly replayed. No V1 producer policy
+  is adopted.
+
+### Schema 3
+
+`ManagedOperation.schema_version` is `2` or `3`. Schema 3 is the unchanged OPS2-04B
+envelope plus a required `admission` object (`descriptor`, `idempotency_scope`,
+`discovery_key`). Schema 2 forbids `admission` and its stored documents keep their exact
+OPS2-04B shape. Validation binds `snapshot.kind` to the capability signal, `producer` to
+`ops.admission`, correlation/causation to the descriptor, and `discovery_key` to
+`created_at`/`operation_id`. Restoration checks the complete field set at every nesting
+level and recomputes the inline digest. Nothing is migrated: schema-2 records stay schema 2.
+
+Legacy isolation: OPS2-02 reads/commits reject schema 3 (`schema_version=1` predicate and
+restoration); pre-04C.1 managed binaries filter `schema_version=2` and cannot match;
+there is still no top-level `revision`. Old binaries cannot read schema 3, so route
+admitted work only to upgraded consumers.
+
+### Admission
+
+`OperationAdmissionService.admit(request, authorization=...)` resolves the capability via
+the `CapabilityCatalog` port, rejects a resolved version that differs from the request,
+checks the recovery policy, builds the descriptor and calls
+`MongoOperationAdmissionRepository.admit`. That is one `insert_one` of a complete pending
+schema-3 aggregate with an idle epoch: operation, descriptor and idempotency scope become
+visible together or not at all (`w=majority, j=true`).
+
+Scoped idempotency: `idempotency_scope = sha256(tenant, requester, key)` under a unique
+partial index. A duplicate with the same request digest (requested signal@version, input
+digest, recovery policy; not the resolved provider/executable, so a retry across a redeploy
+still matches and keeps the original binding) returns the existing aggregate with `created=False`; correlation,
+causation and provenance differences do not change the digest. A different request raises
+`IdempotencyConflict`. A duplicate `_id` remains `DuplicateOperation`. A driver error raises
+`AmbiguousManagedWrite`; repeating with the same key resolves it. The raw key is not stored.
+The adapter calls `ensure_indexes()` before its first insert and fails closed if an index
+exists with conflicting options.
+
+The service trusts only the `AuthorizationProvenance` it is given. The AgentVerse adapter
+[`UTUAdmissionAuthority`](../../../domains/agentverse/operations/admission.py) produces it
+after `UTUAuthority.check_permit` and a root-grant `require_invoke` for the target signal.
+[`SynapticCapabilityCatalog`](../../../domains/agentverse/operations/admission.py) resolves
+through `SynapticRegistry.resolve(signal, version)`; no registry or policy store is added.
+
+### Discovery
+
+`discover(DiscoveryRequest(limit<=100, after=key), tenant_id=None|tenant)` returns
+`DispatchCandidate` references (operation, tenant, signal/version, correlation/causation,
+expected revision/generation) oldest first, with keyset pagination over `discovery_key`.
+`next_after` is `None` once a page is not full: that sweep is complete and the next one
+restarts from the oldest key, so work admitted behind a cursor (caller clock skew) is
+reached on the following sweep. Dispatchers must sweep pages, not poll only the first:
+pending work that can never activate stays at the head until C.2 adds a terminal path.
+Queries are index-hinted, so a missing index fails rather than scanning. Results can be
+stale and are duplicated across callers by design; only the fenced OPS2-04B `activate`
+decides eligibility, and exactly one concurrent activator wins. Activation or terminal
+failure removes the operation from the partial indexes. Retry-pending work is **not**
+discovered: that is recovery, not admission.
+
+Registered capability: `operations.dispatch.discover@1.0.0`, provider `system.enlil`,
+via [`register_dispatch_discovery`](../../../domains/agentverse/operations/discovery.py) on
+the existing `SynapticRegistry`. CPBX/UTU govern invocation; the handler always scopes to
+`synapse.tenant_id` and rejects payload tenants. Trusted bootstrap calls the same repository
+method directly, so discovery never requires an Enlil-managed operation (kernel exception).
+Nothing registers it at startup yet.
+
+### Dispatch notices
+
+[dispatch.py](dispatch.py): Event V2 contract `operations.dispatch.available` v1 with
+`OperationDispatchNotice` (operation/tenant/signal/version/correlation/causation only).
+`CognitiveEventDispatchNotifier` publishes through `CognitiveEventRuntime` (default-deny
+publish policy, HMAC signature, envelope tenant = operation tenant, causation = operation
+ID), which uses the existing RabbitMQ publisher-confirm/mandatory channel. Notices are hints:
+duplicates are expected, publication failure is logged and reported as `notified=False`
+without failing admission, and no notification state is stored. No outbox is needed
+because discovery, not the broker, recovers missed notices. Not wired at startup: the
+contract and a publish grant for the system principal must be configured explicitly.
+
+### Indexes (`operations_v2`)
+
+| Name | Keys | Options |
+| --- | --- | --- |
+| `ops_v2_admission_idempotency` | `admission.idempotency_scope` | unique, partial `$exists` |
+| `ops_v2_pending_dispatch` | `admission.discovery_key` | partial `schema_version=3, snapshot.state=pending` |
+| `ops_v2_pending_dispatch_tenant` | `admission.descriptor.tenant_id, admission.discovery_key` | same partial filter |
+
+Schema 1/2 documents are outside all three. Index size follows the pending backlog.
+
+### Executed verification
+
+```sh
+docker compose exec -T -e OPS2_MONGO_INTEGRATION=1 api python -m pytest -q src/base/operations/v2/tests src/domains/agentverse/tests/operations
+```
+
+Result on 2026-10-29 after the acceptance audit: **488 passed, 9 skipped** (423 previous +
+65 new; the skips are the unchanged memory cases). The audit added: admission preserved
+through activate/renew/release/takeover/commit_outcome (retry and terminal) on schema 3;
+600 admitted records across 3 tenants plus v1/v2/activated noise, swept globally and per
+tenant, with `explain()` of the exact production cursors showing one `IXSCAN`, no
+`COLLSCAN`/`SORT`, 25 documents and at most 26 keys examined per 25-row page; sweep
+wrap-around for skewed admissions; replay across an executable redeploy; fail-closed
+references; and discovery through CPBX with the real `UTUAuthority` policy (no permit,
+forged tenant/agent or superseded permit are denied before any query). [test_admission.py](tests/test_admission.py) uses real MongoDB 8.0
+for atomic insertion, fresh-adapter reconstruction, concurrent same-key and conflicting
+admissions, lost-response ambiguity followed by replay, legacy/old-binary predicates,
+v2 shape preservation, concurrent discovery followed by competing fenced activations,
+`explain()` checks for index use with no `COLLSCAN` and bounded docs/keys examined,
+tenant isolation, fail-closed missing/conflicting indexes and recovery of a missed
+publication after a simulated restart. Adapter tests exercise a real `UTUAuthority`,
+`SynapticRegistry` and `SynapticExchange`.
+
+### Limitations and OPS2-04C.2 blockers
+
+- **Background authority:** UTU permits are session-bound. The provenance proves an
+  admission-time decision only; UTU must define how detached work re-establishes authority
+  and observes revocation before any worker executes a descriptor.
+- No typed per-capability input schema exists on `SynapticBinding`; input is validated
+  as bounded plain JSON only.
+- Executable identity is recorded, not retained: executors must refuse a mismatched
+  provider/executable, never substitute.
+- Discovery ordering uses the caller clock (fairness only). There is no admission TTL,
+  expiry, retention or cancellation command for pending work.
+- Notices and discovery registration are not wired into lifespan; no consumer exists.
+- Mongo-specific: partial indexes, `hint`, update pipelines and `$$NOW`. Cosmos
+  compatibility, failover and high-volume behaviour are unverified.
