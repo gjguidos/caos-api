@@ -44,6 +44,8 @@ Use the existing container and development tooling. Do not introduce additional 
 
 ## Architecture
 
+Before architectural changes, consult `docs/architecture/exoteric/AOSA_ENGINEERING_PRINCIPLES.md`, the canonical engineering-review guidance; keep implementation claims grounded in source and tests.
+
 ### Dependency injection
 
 The root container is:

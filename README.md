@@ -209,22 +209,19 @@ Specialized cognitive agents, including the proposed **Anunnaki cognition bearer
 
 ## Engineering principles
 
-1. **Cognition is a platform capability.** Do not hide all reasoning and continuity inside isolated prompts.
-2. **Deterministic first where appropriate.** Introduce LLMs and autonomous agents only when they add value.
-3. **Everything executable is operationally visible.** Workflows, crawlers, tools, and agents share lifecycle and tracing conventions.
-4. **Same contracts, different execution modes.** Pure functions, cognitive services, and agents can expose compatible capability interfaces.
-5. **Identity and authority remain explicit.** Shared cognition must not imply shared permissions or memory.
-6. **Events coordinate; services implement.** Keep transport concerns distinct from cognitive behavior and business logic.
-7. **Support composition at multiple scales.** Agents may contain capabilities and may themselves serve as capabilities.
-8. **Design for bounded execution.** Use limits, timeouts, cancellation, retries, and safeguards against uncontrolled recursion.
-9. **Maintain provider flexibility.** Cognitive resources should not be inseparable from one model provider.
-10. **Make the platform useful without an LLM.** Integration, crawling, and workflows remain valuable independently.
+The canonical architecture-review guidance is [AOSA Engineering Principles](docs/architecture/exoteric/AOSA_ENGINEERING_PRINCIPLES.md). In brief:
+
+- **CAOS uses CAOS:** prefer its governed, reusable capabilities for internal work, with a minimal trusted kernel and optional reasoning; see [architectural self-application](docs/architecture/exoteric/AOSA_ENGINEERING_PRINCIPLES.md#15-architectural-self-application--caos-uses-caos).
+- Keep capability contracts independent of transport, provider and deployment topology.
+- Preserve explicit identity, tenant isolation, authorization and independent lifecycles.
+- Design for horizontal scale and bounded resources; optimize from measurements.
+- Deliver working vertical slices with sourced knowledge, traceability and explicit failure/effect guarantees.
 
 ## Development direction
 
-CAOS is an evolving platform vision. The following is a **proposed implementation sequence**, not a claim that all components are available today.
+CAOS is an evolving platform vision. The following are **proposed implementation themes**, not a prerequisite pipeline or a claim that all components are available today. Sequence work through the [vertical-slice delivery principle](docs/architecture/exoteric/AOSA_ENGINEERING_PRINCIPLES.md#11-vertical-slice-delivery-toward-working-capabilities).
 
-| Stage | Focus |
+| Theme | Focus |
 | --- | --- |
 | 1. Common contracts | Event envelopes, operation lifecycle, capability schemas, identity and permission boundaries. |
 | 2. First-class tool integration | Bring workflow and crawler execution under shared contracts without regressing existing behavior. |
@@ -232,7 +229,7 @@ CAOS is an evolving platform vision. The following is a **proposed implementatio
 | 4. Agentic composition | Agent-to-agent delegation, agent-backed tools, and capability routing. |
 | 5. Enterprise platform | Client integration SDKs, governance interfaces, observability views, and deployment options. |
 
-The first architectural validation should use **Workflow Engine** and **Web Crawler** as representative workloads, because they exercise different execution patterns while needing the same operational guarantees.
+The immediate delivery priority is the first working **`#weather` channel**: persistent channel context, Adam and specialist agents, shared sourced knowledge, and governed capability interaction. This is a target, not a statement that the slice is already implemented. Enlil and other infrastructure should provide its smallest necessary foundations. **Workflow Engine** and **Web Crawler** remain representative validation workloads where they support that slice, not mandatory first milestones.
 
 ## Getting started
 

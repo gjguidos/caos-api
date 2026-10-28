@@ -6,6 +6,8 @@ See [ADR-0002](../decisions/ADR-0002-exoteric-esoteric-knowledge.md) for the doc
 
 ## AOSA and practical concepts
 
+Use [AOSA Engineering Principles](AOSA_ENGINEERING_PRINCIPLES.md) as the canonical design/review reference before architectural changes. It defines engineering direction and the `#weather` delivery priority without treating proposed runtimes or research as implemented behavior.
+
 **AOSA — Agent-Oriented System Architecture — is the architectural foundation; CAOS is the platform built around it.** Preserve explicit identity/authority, composition, shared execution contracts, domain ownership, dependency injection and bounded lifecycle behavior. Events coordinate services; tools and workflows need not use an LLM. Model-assisted results can be nondeterministic while authorization and lifecycle invariants remain explicit and testable.
 
 | Concept | Practical distinction | Existing evidence / status |
@@ -29,7 +31,7 @@ Concrete entry points include `src/domains/agentverse/ncsc/cpbx.py`, `src/domain
 ## Current implementation versus planned architecture
 
 - **Observed baseline:** the index records source entry points reviewed at `56a2b9c5e170c343aa71869d4df118bc8490cf73`. Existing tools, local synaptic dispatch, event policies, operation/workflow support and Genesis lifecycle code must still be traced for the question at hand; source presence alone does not prove deployment.
-- **Planned:** THOTH, its four cognitive modes, privileged knowledge tools and Enki-mediated provisioning are [ADR-0001 proposals](../decisions/ADR-0001-thoth-privileged-knowledge.md). OPS V2/Enlil, WFT V2 and a cognitive-homeostasis controller are not established implementations here.
+- **Planned:** THOTH, its four cognitive modes, privileged knowledge tools and Enki-mediated provisioning are [ADR-0001 proposals](../decisions/ADR-0001-thoth-privileged-knowledge.md). Distributed Enlil execution/recovery, WFT V2 and a cognitive-homeostasis controller remain planned. [OPS2-04B](../../../src/base/operations/v2/README.md#ops2-04b--managed-aggregate-and-atomic-fencing) supplies bounded managed persistence/fencing, not the distributed runtime or a completed product slice.
 - **Unknown or incomplete:** report missing wiring, resource checks, integration prerequisites, unexecuted tests and documentation drift rather than promoting intent to fact. Review current source instead of inferring capability from a branch name.
 
 ## Connecting research to engineering

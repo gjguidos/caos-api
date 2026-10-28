@@ -17,7 +17,7 @@ This is an OpenCode instruction skill, not a CAOS runtime agent, executable tool
 
 ## Entry points and collaboration
 
-1. Read root `AGENTS.md` and `docs/architecture/README.md`.
+1. Read root `AGENTS.md`, `docs/architecture/README.md` and the canonical `docs/architecture/exoteric/AOSA_ENGINEERING_PRINCIPLES.md` before recommending architectural changes. Use its review checklist rather than inventing a parallel principles catalog.
 2. Use the index to find the relevant source, tests and subsystem documentation.
    - `docs/architecture/exoteric/README.md` — enterprise concepts and testable engineering mechanisms.
    - `docs/architecture/esoteric/README.md` — research questions, philosophical sources, archetypes and the inspiration-to-engineering crosswalk.
@@ -61,6 +61,7 @@ This skill provides the explanation and evidence map. The research agent traces 
 | Question | Starting evidence |
 | --- | --- |
 | CAOS and AOSA concepts | Root `README.md` (target vision), `AGENTS.md`, architecture index |
+| Engineering principles, tool-first design, scalability or delivery priorities | `docs/architecture/exoteric/AOSA_ENGINEERING_PRINCIPLES.md` — canonical review guidance, not a runtime implementation inventory |
 | Enterprise use, practical governance or Exoteric CAOS | `docs/architecture/exoteric/README.md`, then the existing source/skill evidence map |
 | Mind, Hermetic influences, Nous, Poimandres, homeostasis or mythological archetypes | `docs/architecture/esoteric/README.md`; identify source tradition, interpretation, CAOS hypothesis and technical status separately |
 | CAOS Hermeticum, Context-Adaptive EQ, social cognition or emergent civilizations | `docs/architecture/esoteric/research/README.md` and its linked manifesto/proposal; identify the pending standalone EQ source and absent `EXTENDED_README.md` rather than inventing missing contents |

@@ -4,6 +4,8 @@ An entry point for conceptual, architectural, security and engineering-practice 
 
 All code and skill paths in backticks are relative to the `caos-api` repository root. Markdown links are relative to this document. Start with repository-root `AGENTS.md` and `.agents/skills/caos-architect/SKILL.md`; use the existing `.agents/research.md` research agent for deeper read-only tracing and existing specialist skills for engineering procedures.
 
+Consult [AOSA Engineering Principles](exoteric/AOSA_ENGINEERING_PRINCIPLES.md) before architectural changes. It is the canonical engineering-review reference; this index remains the source/evidence map, not a competing principles catalog or runtime policy engine.
+
 ## Two perspectives, one CAOS system
 
 - **[Exoteric](exoteric/README.md):** the practical enterprise Cognitive Agentic Operative System, AOSA concepts, testable contracts, governance, security, observability and lifecycle management.
@@ -22,6 +24,7 @@ Use explicit labels: **implemented/observed**, **verified by executed tests**, *
 | Question | Repository starting points | Status / qualification |
 | --- | --- | --- |
 | What are CAOS and AOSA? | `README.md`, `AGENTS.md` | Platform vision and contributor conventions; the README explicitly describes a target architecture |
+| Which principles govern architectural changes and delivery priorities? | [AOSA Engineering Principles](exoteric/AOSA_ENGINEERING_PRINCIPLES.md) | Canonical review guidance, including tool-first design, minimal kernel, measured optimization and the `#weather` vertical-slice target; not implementation or deployment evidence |
 | What are Exoteric and Esoteric CAOS? | [Exoteric](exoteric/README.md), [Esoteric](esoteric/README.md), [ADR-0002](decisions/ADR-0002-exoteric-esoteric-knowledge.md) | Established documentation perspectives on one system, not permission tiers |
 | What are Nous, Poimandres, cognitive homeostasis and the archetypes? | [Esoteric research and sources](esoteric/README.md), [engineering crosswalk](esoteric/README.md#inspiration-to-engineering-crosswalk) | Separate historical discourse, modern/CAOS interpretation and proposed engineering from verified behavior |
 | Where are the Hermeticum and AOSA EQ/social-cognition research? | [Manifesto](esoteric/CAOS_Hermeticum_Volume_I.md), [AOSA research index](esoteric/research/README.md) | Philosophical framing and **research proposals**, not runtime contracts; standalone Context-Adaptive EQ source is pending |
