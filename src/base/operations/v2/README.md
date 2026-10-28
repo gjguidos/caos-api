@@ -1,8 +1,8 @@
-# OPS V2 — Contracts and Durable Repository
+# OPS V2 — Contracts, Persistence and Execution Ownership
 
 **Status:** OPS2-01 contracts are the accepted baseline for OPS2-02. The bounded repository implementation below does not establish a deployed OPS V2 runtime, approve a broader supervisor design, or accept/supersede an ADR.
 
-**Scope:** Pydantic v2 snapshots, unchanged transition guards and OPS2-02 storage under `src/base/operations/v2/`. No runner, supervisor, broker, worker, workflow scheduling, LLM or authorization logic. UTU remains responsible for authorization at future integration boundaries. These models neither mint nor deserialize execution permits.
+**Scope:** Pydantic v2 snapshots, unchanged transition guards, OPS2-02 storage and isolated OPS2-03 ownership under `src/base/operations/v2/`. No runner, supervisor, broker, worker, workflow scheduling, LLM or authorization logic. UTU remains responsible for authorization at future integration boundaries. These models neither mint nor deserialize execution permits.
 
 The OPS2-01 sections below record the original contract slice and its limitations at that stage. References there to missing persistence/CAS are superseded only by the bounded [OPS2-02 implementation](#ops2-02--durable-operation-repository), not by a recovery runtime or worker fence.
 
@@ -179,3 +179,195 @@ and attempt retention; define schema upgrades and authorized import/resource acc
 An ambiguous database error may follow a committed write: reload and reconcile rather
 than blindly repeat effects. CAS protects snapshots only, not execution uniqueness,
 quiescence, external side effects or UTU authority. Enlil supervision remains out of scope.
+
+## OPS2-03 — Distributed Execution Ownership and Fencing
+
+**Status:** Implemented for architecture review, based on OPS2-01/02 at `cfd3c20`.
+Their models, transitions, snapshot repositories and interfaces are unchanged.
+The earlier OPS2-02 limitations describe that milestone; this section adds ownership
+storage only, not a fenced executor or ownership-fenced operation-state commits.
+
+### Implemented record and repository contracts
+
+[OwnershipRecord and OwnershipRepository](ownership.py) define coordination, **not
+authorization**. The frozen, extra-forbidding record requires every field:
+
+- `operation_id`, `attempt_id`: distinct UUIDs. Attempt identity is supplied, not
+  generated or verified against an operation by this repository.
+- `owner_id`: nonblank opaque executor-instance/session identity; not an authenticated
+  principal or permit. Callers should choose identities unique to an executor incarnation.
+- `fencing_token`: positive, per-operation generation, bounded to signed BSON int64.
+  First claim yields 1; every later claim increments it. Renewal/release retain it.
+  Exhaustion fails closed rather than wrapping/resetting. There is no global counter.
+- `state`: `active` (unreleased generation, possibly expired) or `released`.
+  Expiration does not rewrite the document or reset its token.
+- `created_at`: first claim time; `acquired_at`: current generation's claim time;
+  `updated_at`, `lease_expires_at`, and nullable `released_at`. UTC-aware timestamps
+  have explicit millisecond precision, with consistent ordering and release metadata.
+
+Async API (all mutations return a validated record):
+
+```python
+claim(operation_id, *, attempt_id, owner_id, lease_ms)
+renew(operation_id, *, owner_id, fencing_token, lease_ms)
+release(operation_id, *, owner_id, fencing_token)
+inspect(operation_id)
+```
+
+No caller `now` or expiration timestamp is accepted. Lease duration is a strict integer
+from 1 to 86,400,000 milliseconds (a bounded contract, not a recommended renewal interval).
+Renewal uses `max(existing_expiry, repository_now + duration)` and never shortens a lease.
+The same owner cannot claim an unexpired lease; use renewal instead. Release requires
+a matching **live** owner/token and preserves owner, attempt, expiry and token history.
+Released generations cannot be renewed or released again; a new claim gets a new token.
+Expiry is exclusive: a lease is live only when `lease_expires_at > repository_now`.
+
+Typed failures: `OwnershipConflict` for a competing owner/concurrent change or repository
+clock regression; `ObsoleteFencingToken` for a noncurrent token; `LeaseExpired`;
+`OwnershipReleased`; `OwnershipNotFound`; `InvalidOwnershipRequest` for malformed IDs,
+owners, tokens, durations or exhausted token space; `CorruptOwnership` for invalid stored
+documents. Credential failure precedence is token, owner, released state, expiration,
+then clock regression. Concurrent same-generation renewal can also lose exact-snapshot
+CAS and report conflict; there is no automatic retry or idempotent command protocol.
+
+`inspect` restores the last record, including expired/released ownership, or raises
+`OwnershipNotFound`. It is diagnostic, not proof that the lease remains live when the
+response arrives. All input/storage boundaries reject malformed records; no missing
+identity, token or metadata is regenerated.
+
+### Adapters and exact atomic strategy
+
+[InMemoryOwnershipRepository](memory_ownership_repository.py) samples its repository-owned
+clock and checks/mutates under one `asyncio.Lock`. It returns detached records. An injected
+clock supports deterministic tests; there is no per-call clock override. This adapter is
+process/event-loop local and not durable.
+
+[MongoOwnershipRepository](mongo_ownership_repository.py) reuses CAOS's configured
+`MongoDBRepository.get_collection()`, never constructs/closes a client, and is separately
+provided as `Container.operations.ownership_repository_v2`. Existing V1 and OPS2-02
+providers are unchanged. No route, runner, supervisor or lifecycle hook consumes it.
+
+Mongo storage uses one document per operation in `operation_ownership_v2`: canonical UUID
+strings, string owner/state, integer token/schema version (`1`), and aware BSON dates.
+The built-in unique `_id_` index enforces identity; there are no other indexes, no TTL,
+no deletion API and no expiring counter documents. Restoration requires the complete
+schema and strict Pydantic validation. Native MongoDB 5.0+ (`hello`, aggregation updates
+and `$$NOW`) is required; the test deployment is MongoDB 8.0. Cosmos Mongo API compatibility
+is unverified and there is no weaker fallback.
+
+1. **Initial claim:** a validating read finds no record. The adapter samples the primary's
+   `hello.localTime`, constructs token 1 and calls `insert_one`. The unique `_id` insertion,
+   **not the preceding read**, is the atomic first-claim gate. Concurrent absent reads
+   cannot overwrite each other: one insert wins; duplicate key becomes ownership conflict.
+   An initial lease starts at the sampled server time, so network/write latency consumes
+   its duration. After insertion, the adapter rereads persisted ownership with database
+   time and requires the inserted owner/token to remain live and unreleased. Expiration
+   raises `LeaseExpired`; a superseding generation raises `ObsoleteFencingToken`.
+   The record/token history is retained, with no deletion, reset or automatic claim retry.
+   Success verifies validity **at that observation point only**; ownership may expire,
+   be released or be superseded afterward, including before the response arrives.
+   No app clock is used.
+2. **Expired/released takeover:** a validating pre-read is followed by
+   `find_one_and_update(..., upsert=False, return_document=AFTER)`. Its predicate matches
+   the entire prior snapshot (including operation, attempt, owner and token) **and**
+   requires `released OR lease_expires_at <= $$NOW` and `$$NOW >= updated_at`.
+   The same atomic pipeline increments the retained token and sets the new owner,
+   attempt, active state and server-derived timestamps. Concurrent takeover candidates
+   cannot both match the old generation. An intervening renewal/release can cause conflict;
+   nothing blindly replaces the pre-read snapshot. No upsert resets expired ownership.
+3. **Renew/release:** validating pre-read establishes typed errors, but is not sufficient
+   to grant the write. Exact prior-snapshot CAS includes matching owner/token/attempt,
+   active state and the atomic predicates `lease_expires_at > $$NOW` and
+   `$$NOW >= updated_at`. The update uses the **same command's** server time. Expiration,
+   takeover or release between validation and mutation prevents the write. A failed CAS
+   performs at most one diagnostic read for error classification, never a write retry.
+
+Mongo uses primary reads, majority read concern and ownership-specific
+`w=majority, j=true, wtimeout=5000` writes. These settings do not alter OPS2-02's write
+concern contract. They prevent ordinary acknowledged ownership-token rollback under
+normal durable replica-set failover assumptions; they are not evidence that failover or
+power-loss tests were run. Database/write-concern errors propagate and may have ambiguous
+outcomes. Existing driver retryable-write settings remain in force, but no application
+retry loop is added. Inspect/reconcile before explicitly issuing a new request.
+
+Repository-authoritative time removes caller-clock skew, not server wall-clock jumps.
+Backward-time mutations are rejected until timestamp ordering permits them; forward jumps
+can expire leases early. Deployment clock discipline, durable replica topology and latency
+budgets remain requirements. Raw document deletion, manual token edits, database rollback
+or restoring an older backup can destroy monotonic history: do not use them as release
+or recovery. A disaster-restore protocol must preserve a high-water mark or invalidate the
+old fencing namespace before accepting effects.
+
+### Tested behavior
+
+Executed in the API container against the existing real MongoDB deployment:
+
+```sh
+docker compose exec -T -e OPS2_MONGO_INTEGRATION=1 api python -m pytest -q src/base/operations/v2/tests src/domains/agentverse/tests/operations/test_operation_repository.py
+```
+
+Result after first-claim timing finalization: **372 passed, 9 skipped**, with 11 existing
+Pydantic deprecation warnings.
+The skips are memory-adapter cases for Mongo-only tests; their Mongo counterparts ran.
+Without the explicit environment opt-in, Mongo cases skip rather than silently mock storage.
+
+[Ownership tests](tests/test_ownership.py) cover first claim, unexpired exclusion, renewal,
+wrong owner/token, expiry, takeover, obsolete-owner rejection, strict repeated-release
+handling, retained tokens, malformed records/requests, BSON/JSON restoration, token
+exhaustion, repository clock boundaries, stored corruption and DI independence. Independent
+Mongo adapters restore persisted ownership. Barrier tests force concurrent first claimers
+to observe absence and concurrent takeover candidates to observe the same expired token:
+exactly one succeeds in each case. Separate real-Mongo tests let leases expire **after**
+validation but **before** renewal/release writes, proving the write-side expiration guard
+rather than only application prechecks. Initial-insert timing tests deliberately delay a
+real insert beyond its lease: expired success is rejected, the record is retained, and a
+later claim receives token 2, which rejects token 1 renewal/release. A second case supersedes
+the inserted generation before its post-insert observation and rejects the original claim.
+A mocked failure test checks lack of adapter retries;
+it is not used as evidence of database atomicity. Test collections have UUID-isolated names;
+cleanup removes only the test's own collection. All unchanged OPS2-01/02 tests and the V1
+repository test are included in this run.
+
+**Not tested:** replica failover, clock jumps across primary changes, power loss, backup
+restore, Cosmos, high-load latency, or end-to-end execution/side-effect fencing.
+
+### Fencing boundary and required OPS2-04 contract (proposed, not implemented)
+
+**OPS2-03 is not exactly-once execution.** It rejects obsolete mutations to ownership
+records only. It cannot kill stale executors, prove quiescence, roll back effects, authorize
+work, validate the supplied attempt against a live operation, or prohibit claims against
+terminal/nonexistent operation IDs. No execution or recovery is started by a claim.
+
+**OPS2-02 commits are not ownership-fenced.** Reading this lease and then separately
+calling `OperationRepository.commit` leaves a race with expiry/takeover. Snapshot revision
+CAS is not a substitute: an obsolete executor with a current revision can still commit
+through OPS2-02. No distributed transaction or hidden OPS2-02 contract change is introduced.
+
+Before enabling an executor, OPS2-04 must provide and review an authoritative mutation
+boundary with these properties:
+
+1. Validate operation identity, current attempt, owner incarnation, exact current fencing
+   token, unreleased/unexpired lease under authoritative time, expected snapshot revision,
+   and the accepted lifecycle transition **at the same atomic linearization point** as the
+   execution-state change. A takeover and a stale-owner commit must not both be accepted
+   against the old generation. A separate lease precheck does not satisfy this contract.
+2. Select an atomic storage layout/protocol that satisfies that property; current separate
+   documents and OPS2-02 alone do not. Define consistent claim/start/finish/release ordering,
+   including pending/terminal states and allocation of the current attempt. No storage
+   layout migration or transaction implementation is part of this milestone.
+3. Define outcome/error reconciliation after ambiguous writes and crashes. Lease expiry
+   is loss of coordination authority, **not proof that prior work stopped** or permission
+   to blindly retry external effects. Specify retry/recovery policy separately.
+4. Require participating effect sinks to atomically enforce appropriate fencing generations
+   and/or idempotency keys with the effect. Tokens here are scoped per operation, not
+   globally across unrelated operations/resources. Without sink cooperation, old executors
+   can still perform effects despite failing lease/state writes.
+5. Integrate trusted UTU/NCSC principal, tenant, permit/revocation and lineage checks at
+   authorized entry/effect boundaries. Persisted `owner_id` is not a permission grant;
+   renewal must not revive revoked authority. Decide background-work/session ownership,
+   cross-instance cancellation, shutdown draining and recovery readiness without assuming
+   that a WebSocket connection or absence of a local task proves execution ownership.
+
+V1 remains process-local and separately wired, including existing crawler supervision and
+cleanup behavior. No executor loop, scheduling, automatic recovery, RabbitMQ, WebSocket,
+worker management, agent lifecycle or authorization-service changes are included.
