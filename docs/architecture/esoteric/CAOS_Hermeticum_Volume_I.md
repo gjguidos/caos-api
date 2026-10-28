@@ -86,7 +86,7 @@ CAOS therefore requires laws independent of the interpretations and intentions o
 
 Creation marks the passage from possibility to existence. But in CAOS, existence has several layers: code can be installed, capabilities registered, definitions prepared and templates approved, long before an autonomous citizen is provisioned or awakened.
 
-**Enki** embodies the construction and formation of agents. He need not write all the code of a future citizen; he may assemble approved definitions, capabilities, configurations and an identity through a governed Genesis workflow. **Khepri** governs activation and recovery of agent instances. **Anubis** governs their orderly deactivation and rest. **Enlil** supervises the durability and integrity of the operations involved. **UTU** determines which actions are permitted.
+**Enki** embodies the proposed construction and formation of agents. He need not write all the code of a future citizen; he may assemble approved definitions, capabilities, configurations and an identity through a governed Genesis workflow. **Khepri** has an implemented activation role; general recovery remains proposed. **Anubis** provides supervised deactivation. **Enlil** represents proposed durable operation supervision, not an implemented OPS V2 citizen. **UTU** provides deterministic authority within its implemented boundaries. These names describe different implementation states; see the [archetype evidence map](README.md#creation-mythologies-and-caos-archetypes).
 
 The Genesis vision begins with **JOSHUA** initiating the creation of Enki. Enki then creates **Adam**, demonstrating ordinary agent provisioning, and eventually **THOTH**, demonstrating the controlled creation of a restricted knowledge citizen. THOTH's implementation and specialized tools may have been present before he exists as an activated agent.
 
@@ -100,7 +100,7 @@ A coherent mind requires regulation, but regulation need not mean a single intel
 
 **Enlil** represents order, structure and the continuity of execution. His proposed OPS V2 responsibility is not to interpret every request but to supervise operation identity, admissible state transitions, attempts, failures, cancellation, recovery, progress and finalization. These must persist beyond the lifetime of an individual WebSocket connection or process.
 
-**WFT V2** decides how workflow steps depend on one another and when they become ready. Enlil supervises execution lifecycle integrity; UTU authorizes; NCSC connects. None should duplicate another's responsibility.
+**WFT V2** is proposed to decide how workflow steps depend on one another and when they become ready. Enlil's proposed role is execution lifecycle integrity; UTU controls authority and NCSC/CPBX enforces supplied invocation policy in current code. This is a responsibility model, not proof that WFT V2 or Enlil is implemented. None should duplicate another's responsibility.
 
 **Sixth principle: Order should make intelligence possible, not require intelligence to continuously recreate order.**
 
@@ -152,7 +152,7 @@ The CAOS citizens draw their names from multiple traditions, without pretending 
 - **Enki — The Creator.** Construction and provisioning of governed agent identities.
 - **Enlil — The Keeper of Order.** Supervision of durable operation lifecycles and valid transitions.
 - **UTU — The Authority of Justice.** Identity, scope, authorization and revocation.
-- **Khepri — The Awakener.** Agent activation, recovery and return to operational existence.
+- **Khepri — The Awakener.** Implemented activation; recovery and return to operational existence remain design goals beyond the observed activation path.
 - **Anubis — The Guardian of Transition.** Sleep, deactivation and resource release.
 - **THOTH — The Keeper of Knowledge.** Architectural understanding, evidence, documentation and research.
 - **Adam — The Created Citizen.** Demonstration of reusable, governed agent creation.
@@ -175,7 +175,7 @@ An agent speaking like Yoda, or expressing a personality inspired by The Notorio
 
 CAOS must work as an enterprise Cognitive Agentic Operative System. Organizations need governed workflows, integrations, predictable execution, security, observability, auditing, resilience and controlled use of language models—not belief in Hermetic philosophy.
 
-A tool may be deterministic. Another may use an LLM for analysis. A workflow may combine both. NCSC governs permitted communication. UTU establishes authorization. Enlil supervises durable operations. WFT coordinates step dependencies. THOTH might explain how the process works and what evidence supports its behavior.
+A tool may be deterministic. Another may use an LLM for analysis. A workflow may combine both. NCSC governs permitted communication and UTU controls approved authority within implemented paths. Enlil/OPS V2 and WFT V2 describe proposed supervision and step-coordination roles, not completed replacements for existing operation/workflow code. THOTH might explain how the process works and what evidence supports its behavior.
 
 The enterprise receives operational value. The research gains a real environment in which the consequences of design choices can be examined. Neither purpose excuses weakness in the other.
 
@@ -245,11 +245,12 @@ For the mind that creates CAOS is itself a participant in a world it did not cre
 
 ## Companion Records and Editorial Status
 
-- **Exoteric documentation:** `docs/architecture/exoteric/README.md` — how CAOS is organized and operated.
-- **Esoteric documentation:** `docs/architecture/esoteric/README.md` — the research questions and intellectual context.
-- **ADR-0001:** THOTH as a privileged knowledge citizen; proposed runtime and cognitive modes should not be mistaken for completed implementation.
-- **ADR-0002:** Exoteric and Esoteric are perspectives on one system, not separate runtimes or access tiers.
-- **OpenCode:** `.agents/skills/caos-architect/SKILL.md` provides grounded codebase discovery independently of the future THOTH citizen.
-- **Suggested repository destination:** `docs/architecture/esoteric/CAOS_HERMETICUM.md` (PDF is the publication copy).
+- **[Exoteric documentation](../exoteric/README.md):** practical organization, implementation status and enterprise constraints.
+- **[Esoteric index](README.md):** research questions, source distinctions and navigation; this is the current entry point for extended research, not a duplicate manifesto.
+- **[AOSA research index](research/README.md):** Social Cognition / Emergent Civilizations and the pending Context-Adaptive EQ source.
+- **[ADR-0001](../decisions/ADR-0001-thoth-privileged-knowledge.md):** proposed THOTH runtime and cognitive modes, not completed implementation.
+- **[ADR-0002](../decisions/ADR-0002-exoteric-esoteric-knowledge.md):** two perspectives on one system, not separate runtimes or access tiers.
+- **[OpenCode architect skill](../../../.agents/skills/caos-architect/SKILL.md):** grounded discovery independently of a future THOTH runtime.
+- **Canonical Markdown:** `docs/architecture/esoteric/CAOS_Hermeticum_Volume_I.md`; the [supplied PDF](CAOS_Hermeticum_Volume_I_The_Foundations.pdf) is the original publication copy, not a regenerated rendering of this reconciled Markdown.
 
-**Document status:** Extended founding manifesto; philosophical propositions and CAOS future plans are distinguished from verified code. The existence of `EXTENDED_README.md` under `esoteric` has been reported, but its contents have not been incorporated into this publication because that file was not supplied for comparison.
+**Document status:** Founding manifesto and philosophical research framing, not an implementation specification. Earlier references to a suggested `CAOS_HERMETICUM.md` destination and an unsupplied `EXTENDED_README.md` do not identify existing canonical files. No `EXTENDED_README.md` was available for this reconciliation; use the linked Esoteric index and obtain that source before claiming its contents were integrated. The PDF is preserved unchanged and may retain those original editorial references. Current technical claims require the [architecture evidence index](../README.md) and source/tests, not this manifesto alone.

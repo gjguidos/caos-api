@@ -46,6 +46,16 @@ Future THOTH code, ToolSpecs and capability bindings **can exist before THOTH is
 
 This preserves the independent OpenCode research workflow and reuses CAOS's existing registries, ToolSpec, principal-bound NCSC clients, authorization and Genesis lifecycle boundaries. It does not replace the CAOS research agent or specialist skills. It provides a concrete future privileged-citizen security scenario without claiming that scenario already works.
 
+## Alternatives supported by this proposal
+
+The original record does not document a historical alternatives review or approval. The comparisons below make its existing boundaries explicit; they are not newly accepted decisions or evidence that these options were previously debated. THOTH remains **Proposed**.
+
+| Alternative | Support and trade-off in the existing record |
+| --- | --- |
+| Repository knowledge without a runtime citizen | The current context and shared-knowledge proposal already support direct OpenCode use. This avoids THOTH provisioning/retrieval work but does not provide the proposed in-system citizen interface; the existing workflow remains usable while that interface is unimplemented |
+| Make contributor knowledge depend on THOTH | The shared-knowledge proposal explicitly requires OpenCode independence. Coupling contributors to a privileged runtime would lose the direct repository workflow described in the context; no change to that boundary is proposed |
+| Unrestricted knowledge citizen or THOTH-specific registry/security | The privileged-access, registration and resource-boundary proposals explicitly require restricted access and reuse of existing infrastructure. A parallel or unrestricted design would contradict those stated constraints; no such design is accepted or implemented here |
+
 ## Consequences and acceptance evidence required
 
 Before accepting or implementing this proposal, specify and verify at least:

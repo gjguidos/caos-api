@@ -19,8 +19,11 @@ tenant membership removal, and session invalidation must await
 All writers must use this protocol. Expiry needs a durable scheduler or an
 expiry-aware adapter that initiates revocation; a process-local timer is not
 sufficient. Existing get_session-only providers are deliberately denied for V2
-activation. No production session adapter existed in the inspected Genesis path;
-that path remains fail closed until the application supplies one. Background
+activation. `RedisAgentSessionAuthority` is now implemented in
+`src/domains/agentverse/security/sessions.py` and available through opt-in Genesis
+composition; the unbound default still fails closed. Adapter availability does
+not provision durable sessions or tenant policy. See the
+[session integration guide](GENESIS_SESSION_INTEGRATION.md). Background
 workers never reinterpret a session UUID as proof of an authenticated caller.
 Owner lifecycle identity remains separate from the issued agent identity.
 
@@ -66,7 +69,8 @@ before returning a result. Payload fields never supply any of this identity.
 Static SynapticAuthorization remains available for separately composed local
 CPBX callers; Genesis DI always installs UTU enforcement.
 
-Each invocation has an execution gate shared with its children and tracked tasks.
+A bound client and its nested clients share an execution gate that tracks their
+active invocation tasks.
 Local revocation closes runtime gates and requests cancellation synchronously
 before the durable mutation is awaited. UTU notifies the same lifecycle
 coordinator used by Anubis, through its trusted local revocation path; cleanup
@@ -75,13 +79,19 @@ is supervised in tracked tasks. The revoke result acknowledges the Redis mutatio
 not completed runtime teardown. A timeout/connection failure is indeterminate;
 local gates remain closed and the caller must retry the idempotent revoke.
 
-No positive authorization cache is used. Redis checks have a 1 second timeout;
-this trades availability and extra Redis round trips (entry and completion) for
-prompt stale-client denial. No DB/session-provider lookup is made per CPBX call.
-Running operations and idle runtimes poll at most every 0.5 seconds by default.
-Remote cancellation detection normally takes up to 0.5 seconds plus a Redis read
-(up to 1 second) and event-loop scheduling delay. This is a cooperative bound,
-not a real-time guarantee under process suspension or a blocked event loop.
+No positive authorization cache is used. The revocation store's Redis checks have
+a configurable one-second timeout by default; entry/completion checks trade
+availability and extra round trips for stale-client denial. Persisted agent
+definitions and approval ownership are not re-read per CPBX call. When the session
+adapter implements `check_execution_session()`, permit checks also validate current session state;
+the concrete Redis adapter does so.
+Active UTU-backed synaptic invocations and idle managed runtimes poll permit
+validity every 0.5 seconds by default; these are not durable operation-cancellation
+polls or OPS V2 supervision.
+Remote cancellation detection depends on the polling interval, authority-store
+checks and event-loop scheduling. Session validation and revocation-version
+checks can involve separate reads and invalidation work; this is not a guaranteed
+wall-clock cancellation bound under process suspension or a blocked event loop.
 Distributed workers enforce records directly even if notifications are lost.
 
 Activation is checked before construction, connect, start and registry publication.

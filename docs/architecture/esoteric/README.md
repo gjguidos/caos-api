@@ -4,6 +4,12 @@ The Esoteric perspective treats CAOS as an **executable model inspired by the or
 
 It complements the [Exoteric enterprise system](../exoteric/README.md), not a second implementation. “Esoteric” is a documentation perspective, **not** a secrecy classification, an initiation level or an access grant. The [documentation decision](../decisions/ADR-0002-exoteric-esoteric-knowledge.md) and [knowledge index](../README.md) govern provenance and implementation status. Repository paths in backticks are root-relative.
 
+## Documents and research navigation
+
+- [CAOS Hermeticum, Volume I — The Foundations](CAOS_Hermeticum_Volume_I.md) is the long-form philosophical manifesto; its [original PDF publication](CAOS_Hermeticum_Volume_I_The_Foundations.pdf) is preserved, not regenerated to match later Markdown reconciliation.
+- [AOSA research index](research/README.md) links Social Cognition / Emergent Civilizations as **proposed research** and explicitly records the missing standalone Context-Adaptive EQ source. No experiments or runtime features are established by indexing these notes.
+- This README is the canonical navigation entry point. No separate `EXTENDED_README.md` was available for reconciliation, and the older suggested `CAOS_HERMETICUM.md` filename is not the actual manifesto path. Do not create duplicate documents or claim the missing material was integrated.
+
 ## Source and claim discipline
 
 | Kind of claim | How to present it |

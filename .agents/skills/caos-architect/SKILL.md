@@ -28,6 +28,7 @@ This is an OpenCode instruction skill, not a CAOS runtime agent, executable tool
    - `.agents/skills/ncsc-cpbx/SKILL.md` — NCSC/CPBX invocation, trust boundaries and adapters.
    - `.agents/skills/caos-git/SKILL.md` — Git operations and working-tree protection.
    - `.agents/skills/caos-release/SKILL.md` — release readiness and approved promotion.
+   - `.agents/skills/caos-docs/SKILL.md` — documentation/ADR authoring, organization and validation when explicitly requested.
 5. Use actual installed skill IDs or read the explicit paths above. Do not infer an ID or implemented interface from a display name.
 
 This skill provides the explanation and evidence map. The research agent traces implementation; specialist skills govern changes when the user explicitly requests implementation.
@@ -62,12 +63,14 @@ This skill provides the explanation and evidence map. The research agent traces 
 | CAOS and AOSA concepts | Root `README.md` (target vision), `AGENTS.md`, architecture index |
 | Enterprise use, practical governance or Exoteric CAOS | `docs/architecture/exoteric/README.md`, then the existing source/skill evidence map |
 | Mind, Hermetic influences, Nous, Poimandres, homeostasis or mythological archetypes | `docs/architecture/esoteric/README.md`; identify source tradition, interpretation, CAOS hypothesis and technical status separately |
+| CAOS Hermeticum, Context-Adaptive EQ, social cognition or emergent civilizations | `docs/architecture/esoteric/research/README.md` and its linked manifesto/proposal; identify the pending standalone EQ source and absent `EXTENDED_README.md` rather than inventing missing contents |
 | How an inspirational idea relates to actual engineering | Esoteric inspiration-to-engineering crosswalk and its Exoteric/source references; distinguish analogy, observed mechanism and proposed acceptance criterion |
 | Tool definition and authoring | ToolSpec skill, `src/domains/agentverse/tools/spec.py`, ToolRegistry, existing tools/tests |
 | Security and capability invocation | NCSC skill, event V2 policy, CPBX/UTU code and authorization tests listed in the index |
 | Agent composition and lifecycle | AgentService, factories, lifecycle code and wiring listed in the index; distinguish V1/V2 |
 | Workflow versus operation | Current workflow/operation implementations and tests; do not assume OPS V2/WFT V2 exists |
 | Why a decision was made | `docs/architecture/decisions/`, relevant subsystem docs and history; mark inferred reasoning as a recommendation |
+| Create, update, organize or validate a document/ADR | Use `caos-docs` for the explicitly requested authoring task; retain this skill's source/evidence distinctions and the research agent's read-only role |
 | THOTH, its modes, read-only tools or Genesis provisioning | `docs/architecture/decisions/ADR-0001-thoth-privileged-knowledge.md` — proposed, not an operational runtime or permission grant |
 
 ## Read-only procedure

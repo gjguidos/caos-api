@@ -215,6 +215,8 @@ For registry changes, use `.agents/skills/aosa-registry/SKILL.md` and inspect th
 
 For conceptual, architectural, security and best-practice questions, use `.agents/skills/caos-architect/SKILL.md` and `docs/architecture/README.md`. Keep using the existing `.agents/research.md` CAOS research agent for deeper read-only source investigation and the specialist skills for engineering procedures.
 
+For creating, maintaining, organizing or validating architectural documentation, ADRs, engineering guides and Exoteric/Esoteric research documents, use `.agents/skills/caos-docs/SKILL.md`. Keep discovery indexes current, preserve decision status and source provenance, and validate links/references without introducing runtime dependencies.
+
 Ground answers in current source, wiring and test evidence; distinguish implemented behavior from documented intent and proposals. THOTH is a planned privileged knowledge citizen, not an installed runtime or a grant of repository access. This knowledge foundation introduces no runtime tools, registry or authorization mechanism.
 
 CAOS has complementary **Exoteric** (`docs/architecture/exoteric/README.md`) enterprise/engineering and **Esoteric** (`docs/architecture/esoteric/README.md`) research/philosophical perspectives on the same system, not separate implementations or access tiers. Distinguish ancient sources, modern interpretations, CAOS hypotheses and technical evidence. Symbolic archetypes and THOTH's proposed cognitive modes never establish authority; existing authorization boundaries still govern access.

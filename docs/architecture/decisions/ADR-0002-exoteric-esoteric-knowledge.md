@@ -19,6 +19,16 @@ CAOS needs practical, testable enterprise explanations as well as a place to exa
 - Symbolic inspiration cannot create privileges, override deterministic policy or substitute for testing. No metaphysical premise is required to use the enterprise system, and no test result proves a metaphysical proposition.
 - OpenCode's existing `caos-architect` skill and research agent explain these perspectives using the same evidence discipline. [THOTH's modes, tools and provisioning](ADR-0001-thoth-privileged-knowledge.md) remain proposed and subject to the existing authorization architecture.
 
+## Alternatives supported by the recorded context
+
+This section clarifies contrasts already present in the context and decision; it is not a reconstruction of an undocumented vote or deliberation. Acceptance remains limited to documentation organization, with no supersession or runtime acceptance.
+
+| Alternative | Recorded motivation and consequence |
+| --- | --- |
+| Mix philosophical and technical claims without provenance | The context explicitly identifies the risk of presenting philosophy as verified software behavior. The decision instead requires source/status distinctions and cross-references |
+| Document only the practical system or only the research philosophy | The context states that omitting either loses architectural rationale. The accepted organization keeps both perspectives available without requiring enterprise readers to accept philosophical premises |
+| Treat the perspectives as separate runtimes or access tiers | The decision explicitly says they describe one system and are not permission classifications. Separate implementation or authority is outside this documentation decision |
+
 ## Consequences
 
 Keep the entry points concise and expandable; link to existing subsystem docs and specialist skills instead of copying contracts. Add future research notes under the appropriate perspective with sources and status. Do not invent a parallel registry, ontology/policy runtime, ingestion process or authorization scheme for this taxonomy.
