@@ -1,4 +1,4 @@
-"""OPS2-01 proposed contracts only; V1 remains unchanged and independently wired."""
+"""OPS V2 contracts; persistence adapters are separate, V1 independently wired."""
 
 from src.base.operations.v2.models import (
     AttemptState,

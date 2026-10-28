@@ -1,8 +1,10 @@
-# OPS2-01 — Operation and Attempt Contracts
+# OPS V2 — Contracts and Durable Repository
 
-**Status:** Proposed contracts implemented for review, not an approved state model or deployed OPS V2 runtime. No ADR is accepted or superseded by this slice.
+**Status:** OPS2-01 contracts are the accepted baseline for OPS2-02. The bounded repository implementation below does not establish a deployed OPS V2 runtime, approve a broader supervisor design, or accept/supersede an ADR.
 
-**Scope:** Pure Pydantic v2 snapshots and transition guards under `src/base/operations/v2/`. No persistence implementation, runner, supervisor, broker, worker, workflow scheduling, LLM or authorization logic. UTU remains responsible for authorization at future integration boundaries. These models neither mint nor deserialize execution permits.
+**Scope:** Pydantic v2 snapshots, unchanged transition guards and OPS2-02 storage under `src/base/operations/v2/`. No runner, supervisor, broker, worker, workflow scheduling, LLM or authorization logic. UTU remains responsible for authorization at future integration boundaries. These models neither mint nor deserialize execution permits.
+
+The OPS2-01 sections below record the original contract slice and its limitations at that stage. References there to missing persistence/CAS are superseded only by the bounded [OPS2-02 implementation](#ops2-02--durable-operation-repository), not by a recovery runtime or worker fence.
 
 ## Existing contracts preserved
 
@@ -78,3 +80,102 @@ These are open architectural questions, not OPS2-02 implementation or accepted d
 - Future stores must use atomic expected-revision writes and worker fencing; model
   revision alone does not provide safety. Retry budget and attempt compaction remain
   OPS2-02+ decisions, not invented behavior in this contract slice.
+
+## OPS2-02 — Durable Operation Repository
+
+### Implemented behavior
+
+- [OperationRepository](repository.py) is an async, infrastructure-independent protocol:
+  `create(snapshot)`, `get(operation_id)` and `commit(snapshot, expected_revision=...)`.
+  Creation inserts any fully validated snapshot, including imported terminal history;
+  it does not attest to that history's provenance or require a pending initial state.
+  Existing identities raise `DuplicateOperation`; reads/commits of missing identities
+  raise `OperationNotFound`; stale expectations raise `RevisionConflict`.
+- Commits require a nonnegative integer expectation and exactly `expected_revision + 1`.
+  Both adapters revalidate even Pydantic bypass-created inputs, reproduce one transition
+  using the unchanged OPS2-01 functions and compare the complete result. Invalid
+  snapshots, revision skips, metadata/history rewrites and terminal changes raise
+  `InvalidSnapshot`. A matching duplicate cancellation helper result has no new revision
+  and must not be committed as a new transition. Validation errors can precede lookup errors.
+- [InMemoryOperationRepository](memory_repository.py) locks lookup/validation/replacement
+  together within one adapter/event loop and returns detached frozen snapshots. It is
+  a reference implementation, **not durable or cross-process storage**.
+- [MongoOperationRepository](mongo_repository.py) uses the existing CAOS
+  `MongoDBRepository.get_collection()` and DI-owned client. The separately named
+  `Container.operations.operation_repository_v2` singleton uses
+  `Container.database.mongodb_repository`; V1 providers are unchanged. No route,
+  service or executor consumes V2 automatically. The adapter never closes the shared client.
+- Dedicated `operations_v2` collection: one document contains the complete operation
+  and attempts. `_id` is the canonical string UUID, `schema_version` is integer `1`,
+  and all snapshot fields are explicitly serialized at the top level. UUIDs/enums are
+  strings, attempts are arrays, nullable fields are present, timestamps are UTC ISO-8601
+  strings retaining microseconds. This is JSON/BSON-compatible, not BSON datetime storage;
+  future timestamp query design must account for that choice.
+- The only required index is MongoDB's automatic unique `_id_` index, created with
+  the collection. Identity lookup and CAS use it; no compound revision index, TTL,
+  index bootstrap or speculative query index is needed. No listing API is added:
+  this slice has no listing consumer and recovery discovery requirements are not defined.
+- Creation uses `insert_one` with explicit duplicate-key translation. Commit reads and
+  validates its predecessor, then calls `replace_one({"_id": id, "revision": expected},
+  document, upsert=False)`. The conditional replacement, **not** the preliminary read,
+  is the atomic concurrency boundary. Competing writes cannot both match the same
+  revision. A zero match triggers one diagnostic read to distinguish absent data from
+  a revision conflict, never an automatic write retry. This classification is observed
+  at read time if outside actors delete/reinsert records; such mutation is unsupported.
+- Restoration checks schema version, identity agreement, complete operation/attempt
+  field sets and strict Pydantic JSON validation. Corruption raises `CorruptSnapshot`;
+  there is no identity regeneration, silent metadata defaulting, migration or repair.
+  Snapshot times, attempts, cancellation intent and actual completion outcomes survive
+  storage unchanged. A losing cancellation/completion writer must reload and explicitly
+  derive any next transition; completion after persisted intent retains that intent.
+- Primary reads and acknowledged deployment-configured write concern are required;
+  unacknowledged writes are rejected. Database failures propagate; the adapter has no
+  retry loop. Existing driver/deployment bounded retry and timeout settings remain in force.
+  Persistence survives adapter/process recreation; replica failover/power-loss durability
+  depends on configured write concern, journaling, topology and backups. Majority/journal
+  policy is not imposed here, and Cosmos Mongo API compatibility is not verified.
+- Storage is trusted infrastructure, **not authority**. UUID/kind/producer/correlation
+  metadata cannot authenticate a caller, authorize access or mint UTU permits. No
+  authorization subsystem, AgentVerse dependency or revoke-to-cancel bridge is added.
+
+### Tested behavior
+
+On 2026-10-28, in the existing API container and configured MongoDB environment:
+
+```sh
+docker compose exec -T -e OPS2_MONGO_INTEGRATION=1 api python -m pytest -q src/base/operations/v2/tests src/domains/agentverse/tests/operations/test_operation_repository.py
+```
+
+Result: **266 passed, 2 skipped** (11 pre-existing Pydantic deprecation warnings).
+The two skips are memory cases for Mongo-only corruption and independent-adapter race
+tests; the corresponding Mongo cases ran. Without the environment opt-in, Mongo cases
+skip, rather than presenting mocks as database verification.
+
+[Repository tests](tests/test_repository.py) exercise both adapters for create/get,
+duplicate creation including concurrent inserts, legal revisions, stale/conflicting
+writes, malformed/bypass snapshots, revision skips, historical rewrites, missing data,
+terminal snapshots, cancellation/completion precedence and JSON/BSON round trips.
+An actual Mongo test synchronizes two independent adapters after both read revision 0:
+exactly one conditional replacement succeeds, and a fresh adapter reads the winner.
+Actual stored-document corruption is rejected. Mock tests separately check the exact
+CAS filter/no-upsert and error propagation; they are not evidence of Mongo atomicity.
+DI client sharing, V1 repository/service independence and the unchanged 180 OPS2-01
+tests are included. Tests use UUID-isolated collections and drop only their own collection.
+
+### Known limitations and proposed future recovery requirements
+
+**Not implemented or tested:** restart/power-loss fault injection, replica failover,
+leases, worker fencing, crash reconciliation, recovery scans, effect deduplication,
+transactions with external effects, outbox/event delivery, distributed command IDs,
+tenant/owner access APIs, retention/compaction, schema migration or Cosmos deployment.
+Mongo's document size limit bounds retained attempt history; full-snapshot validation
+and replacement cost grows with that history. External raw database writes can bypass
+the contract; there is no database schema validator or tamper-proof audit history.
+
+**Future decisions, not behavior:** approve deployment durability/read concerns and
+backups; define recovery ownership, bounded discovery queries and lease/fence tokens;
+reconcile lost workers and uncertain external effects before retrying; set retry budgets
+and attempt retention; define schema upgrades and authorized import/resource access.
+An ambiguous database error may follow a committed write: reload and reconcile rather
+than blindly repeat effects. CAS protects snapshots only, not execution uniqueness,
+quiescence, external side effects or UTU authority. Enlil supervision remains out of scope.

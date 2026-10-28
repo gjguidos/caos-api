@@ -44,7 +44,10 @@ class Container(containers.DeclarativeContainer):
     blob_storage = providers.Container(BlobStorageContainer)
     database = providers.Container(DatabaseContainer)
     events = providers.Container(EventContainer)
-    operations = providers.Container(OperationsContainer)
+    operations = providers.Container(
+        OperationsContainer,
+        mongodb_repository=database.mongodb_repository,
+    )
     services = providers.Container(ServiceContainer)
     redis = providers.Container(RedisContainer)
     rate_limiter = providers.Container(RateLimiterContainer)
