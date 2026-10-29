@@ -20,7 +20,10 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    SerializationInfo,
+    SerializerFunctionWrapHandler,
     StrictStr,
+    model_serializer,
     model_validator,
 )
 
@@ -160,6 +163,12 @@ class AuthorizationProvenance(_Frozen):
 
     ``evidence_digest`` is a one-way digest of the verified permit scope and versions;
     it cannot be reconstructed into a permit. Session identifiers are not persisted.
+
+    ``origin`` is how the authority's session was established: ``session`` is an
+    authenticated human session, so ``subject_id`` is the authenticated requester;
+    ``bootstrap`` is a trusted, policy-scoped startup lease, so ``subject_id`` is the
+    policy-designated owner and no human authenticated. The default is omitted when
+    serialized, so records and digests written before this field are unchanged.
     """
 
     authority: Literal["utu"]
@@ -168,6 +177,16 @@ class AuthorizationProvenance(_Frozen):
     subject_id: Identifier
     policy_version: Identifier
     evidence_digest: Digest
+    origin: Literal["session", "bootstrap"] = "session"
+
+    @model_serializer(mode="wrap")
+    def _omit_default_origin(
+        self, handler: SerializerFunctionWrapHandler, info: SerializationInfo
+    ) -> dict[str, Any]:
+        data = handler(self)
+        if data.get("origin") == "session":
+            del data["origin"]
+        return data
 
 
 class RecoveryPolicyRef(_Frozen):

@@ -119,8 +119,10 @@ def managed_from_document(document: dict[str, Any]) -> ManagedOperation:
 
 
 def _require_admission_fields(admission: Any) -> None:
-    def exact(value: Any, fields: set[str]) -> dict[str, Any]:
-        if not isinstance(value, dict) or set(value) != fields:
+    def exact(
+        value: Any, fields: set[str], optional: frozenset[str] = frozenset()
+    ) -> dict[str, Any]:
+        if not isinstance(value, dict) or not fields - optional <= set(value) <= fields:
             raise ValueError("Incomplete or unknown admission fields")
         return value
 
@@ -131,7 +133,9 @@ def _require_admission_fields(admission: Any) -> None:
         ("authorization", AuthorizationProvenance),
         ("recovery_policy", RecoveryPolicyRef),
     ):
-        exact(descriptor[name], set(model.model_fields))
+        # A session-origin authorization omits its default origin when serialized.
+        optional = frozenset({"origin"}) if model is AuthorizationProvenance else frozenset()
+        exact(descriptor[name], set(model.model_fields), optional)
     source = descriptor["input"]
     kind = source.get("kind") if isinstance(source, dict) else None
     exact(source, set((InlineInput if kind == "inline" else InputReference).model_fields))

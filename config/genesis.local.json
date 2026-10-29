@@ -2,7 +2,7 @@
   "approvals": [
     {
       "tenant_id": "caos-local",
-      "agent_id": "00000000-0000-4000-8000-000000000002",
+      "agent_id": "00000000-0000-4000-8000-000000000005",
       "owner_user_id": "00000000-0000-4000-8000-000000000001",
       "enabled": true
     },
@@ -22,11 +22,8 @@
   "grants": [
     {
       "tenant_id": "caos-local",
-      "agent_id": "00000000-0000-4000-8000-000000000002",
-      "invoke": [
-        "chat.context",
-        "chat.response"
-      ]
+      "agent_id": "00000000-0000-4000-8000-000000000005",
+      "invoke": ["genesis.enki.request"]
     },
     {
       "tenant_id": "caos-local",
@@ -46,6 +43,47 @@
     }
   ],
   "trusted_lines": [],
+  "system_citizens": [
+    {
+      "tenant_id": "caos-local",
+      "agent_id": "00000000-0000-4000-8000-000000000003",
+      "name": "Genesis"
+    },
+    {
+      "tenant_id": "caos-local",
+      "agent_id": "00000000-0000-4000-8000-000000000005",
+      "name": "JOSHUA"
+    }
+  ],
+  "bootstrap": [
+    {
+      "tenant_id": "caos-local",
+      "slot": "enki",
+      "subject_id": "00000000-0000-4000-8000-000000000001",
+      "agents": [
+        "00000000-0000-4000-8000-000000000005",
+        "00000000-0000-4000-8000-000000000003"
+      ],
+      "creation": {
+        "name": "Enki",
+        "type": "form",
+        "role_name": "enki",
+        "personality_key": "empty_eva",
+        "prompt": "You are Enki. Prepare structured Agent creation drafts for review.",
+        "visibility": "private"
+      }
+    }
+  ],
+  "handoffs": [
+    {
+      "tenant_id": "caos-local",
+      "subject_id": "00000000-0000-4000-8000-000000000001",
+      "initiator_id": "00000000-0000-4000-8000-000000000005",
+      "executor_id": "00000000-0000-4000-8000-000000000003",
+      "agent_id": "00000000-0000-4000-8000-000000000004",
+      "slot": "enki"
+    }
+  ],
   "provisioned": [
     {
       "slot": "enki",
@@ -55,7 +93,7 @@
       "principal_id": "00000000-0000-4000-8000-000000000003",
       "subject_id": "00000000-0000-4000-8000-000000000001",
       "name": "Enki",
-      "type": "chat",
+      "type": "form",
       "runtime_version": "v2"
     }
   ]

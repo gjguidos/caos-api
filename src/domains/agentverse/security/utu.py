@@ -158,10 +158,8 @@ class UTUAuthority:
             raise EventPermissionError("UTU execution permit required")
         if any(self.matches(permit.key, *scope) for scope in self._blocked):
             raise EventPermissionError("UTU scope revoked locally")
-        sessions = self._resolver._sessions
-        validate_session = getattr(type(sessions), "check_execution_session", None)
-        if callable(validate_session):
-            await validate_session(sessions, permit.key)
+        if await self._session_origin(permit.key) != permit.origin:
+            raise EventPermissionError("UTU permit origin differs from its session")
         versions = await self._store().read(permit.key)
         if (
             any(self.matches(permit.key, *scope) for scope in self._blocked)
@@ -170,13 +168,27 @@ class UTUAuthority:
         ):
             raise EventPermissionError("UTU execution permit superseded")
 
+    async def _session_origin(self, key: AgentInstanceKey) -> Literal["session", "bootstrap"]:
+        """Validate the durable execution session and return how it was established."""
+        sessions = self._resolver._sessions
+        validate_session = getattr(type(sessions), "check_execution_session", None)
+        if not callable(validate_session):
+            return "session"
+        origin = await validate_session(sessions, key) or "session"
+        if origin == "bootstrap":
+            return "bootstrap"
+        if origin != "session":
+            raise EventPermissionError("Unknown session origin")
+        return "session"
+
     async def resolve_agent_principal(self, key: AgentInstanceKey) -> AuthorizedAgentPrincipal:
         if not self._sessions_bound:
             raise EventPermissionError("UTU session invalidation adapter is not bound")
         # Capture before external verification; a revoke/reload during it cannot issue authority.
         versions = await self._store().read(key)
         principal = await self._resolver(key)
-        permit = ExecutionPermit(key, versions)
+        # Origin is the durable session record's, never a caller's or key's claim.
+        permit = ExecutionPermit(key, versions, await self._session_origin(key))
         await self.check_permit(permit)
         return AuthorizedAgentPrincipal(principal.agent_id, principal.tenant_id, permit)
 

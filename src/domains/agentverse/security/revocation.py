@@ -6,7 +6,7 @@ import asyncio
 import hashlib
 import json
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 if TYPE_CHECKING:
     from src.domains.agentverse.ncsc.authorization import SynapticAuthorization
@@ -57,6 +57,8 @@ def policy_version(policy: SynapticAuthorization) -> str:
 class ExecutionPermit:
     key: AgentInstanceKey
     versions: tuple[str, ...]
+    # Set by UTU from the verified session record and rechecked against it.
+    origin: Literal["session", "bootstrap"] = "session"
 
 
 class RevocationStore(Protocol):

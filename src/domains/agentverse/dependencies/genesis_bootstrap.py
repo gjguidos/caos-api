@@ -14,7 +14,12 @@ from fastapi import FastAPI
 if TYPE_CHECKING:
     from src.base.dependencies.di_container import Container
 
-from src.domains.agentverse.agents.lifecycle.agent_principal_resolver import AgentActivationApproval
+from src.domains.agentverse.agents.genesis.bootstrap import GenesisBootstrap
+from src.domains.agentverse.agents.genesis.initiation import GenesisHandoff
+from src.domains.agentverse.agents.lifecycle.agent_principal_resolver import (
+    AgentActivationApproval,
+    SystemCitizen,
+)
 from src.domains.agentverse.dependencies.genesis_security import GenesisSecurityBindings
 from src.domains.agentverse.ncsc.authorization import SynapticAuthorization
 from src.domains.agentverse.ncsc.models import SynapticGrants, TrustedLine
@@ -61,6 +66,9 @@ def build_genesis_security(container: Container) -> dict[str, GenesisSecurityBin
             raise ValueError("Genesis invoke grants must be a list of exact signals")
         grants[scope] = SynapticGrants(invoke)
     provisions = _provisions(config.get("provisioned", []), approvals)
+    handoffs = _handoffs(config.get("handoffs", []))
+    citizens = _citizens(config.get("system_citizens", []), approvals, provisions, handoffs)
+    bootstrap = _bootstrap(config.get("bootstrap", []), provisions, handoffs, citizens)
     sessions = RedisAgentSessionAuthority(
         repository=_RedisBinding(container.redis.redis_repository),
         jwt_service=container.services.jwt_service(),
@@ -70,12 +78,80 @@ def build_genesis_security(container: Container) -> dict[str, GenesisSecurityBin
             sessions=sessions,
             approvals=approvals,
             provisions=provisions,
+            handoffs=handoffs,
+            citizens=citizens,
+            bootstrap=bootstrap,
             authorization=SynapticAuthorization(
                 grants=grants,
                 trusted_lines=[TrustedLine(**item) for item in config.get("trusted_lines", [])],
             ),
         )
     }
+
+
+def _handoffs(items: Any) -> tuple[GenesisHandoff, ...]:
+    if not isinstance(items, list):
+        raise TypeError("Genesis handoffs must be a list")
+    handoffs = tuple(GenesisHandoff.model_validate(item) for item in items)
+    scopes = {(h.tenant_id, h.initiator_id, h.subject_id) for h in handoffs}
+    if len(scopes) != len(handoffs):
+        raise ValueError("Duplicate Genesis handoff")
+    return handoffs
+
+
+def _bootstrap(
+    items: Any,
+    provisions: dict[str, ProvisionedIdentity],
+    handoffs: tuple[GenesisHandoff, ...],
+    citizens: dict[tuple[str, str], SystemCitizen],
+) -> tuple[GenesisBootstrap, ...]:
+    """Each entry leases exactly one handoff's two System Citizens, never an agent."""
+    if not isinstance(items, list):
+        raise TypeError("Genesis bootstrap must be a list")
+    entries = tuple(GenesisBootstrap.model_validate(item) for item in items)
+    if len({(e.tenant_id, e.slot) for e in entries}) != len(entries):
+        raise ValueError("Duplicate Genesis bootstrap")
+    for entry in entries:
+        handoff = next(
+            (h for h in handoffs if (h.tenant_id, h.slot) == (entry.tenant_id, entry.slot)), None
+        )
+        if handoff is None or entry.slot not in provisions:
+            raise ValueError("Genesis bootstrap requires its handoff and provisioned identity")
+        entry.check(handoff, provisions[entry.slot])
+        if any((entry.tenant_id, agent) not in citizens for agent in entry.agents):
+            raise ValueError("Genesis bootstrap may lease only System Citizens")
+    return entries
+
+
+def _citizens(
+    items: Any,
+    approvals: dict[tuple[str, str], AgentActivationApproval],
+    provisions: dict[str, ProvisionedIdentity],
+    handoffs: tuple[GenesisHandoff, ...],
+) -> dict[tuple[str, str], SystemCitizen]:
+    """Deterministic system principals; identity evidence only, never a grant.
+
+    Each needs a reviewed approval in the same scope. A provisioned or handed-off
+    target is a Cognitive Agent definition and can never be declared a citizen.
+    """
+    if not isinstance(items, list):
+        raise TypeError("System citizens must be a list")
+    agents = {(p.tenant_id, p.agent_id) for p in provisions.values()}
+    agents |= {(h.tenant_id, h.agent_id) for h in handoffs}
+    citizens: dict[tuple[str, str], SystemCitizen] = {}
+    for item in items:
+        if not isinstance(item, dict) or set(item) != {"tenant_id", "agent_id", "name"}:
+            raise ValueError("System citizen requires exactly tenant_id, agent_id and name")
+        citizen = SystemCitizen(**item)
+        scope = (citizen.tenant_id, citizen.agent_id)
+        if scope in citizens:
+            raise ValueError("Duplicate system citizen")
+        if scope not in approvals:
+            raise ValueError("System citizen requires a reviewed approval")
+        if scope in agents:
+            raise ValueError("A provisioned Cognitive Agent cannot be a system citizen")
+        citizens[scope] = citizen
+    return citizens
 
 
 def _provisions(
@@ -166,6 +242,51 @@ def configure_genesis_transport(app: FastAPI, bindings: GenesisSecurityBindings)
             from src.domains.agentverse.dependencies.genesis_local import initialize_local
 
             await initialize_local(app.container)
+            if bindings.handoffs:
+                from src.domains.agentverse.agents.composition import AgentComposer
+                from src.domains.agentverse.agents.genesis import GenesisProvisioner
+                from src.domains.agentverse.agents.genesis.initiation import (
+                    GenesisInitiation,
+                    register_genesis_initiation,
+                )
+
+                log = av.caos_log_service()
+                provisioner = GenesisProvisioner(
+                    operations=app.container.operations.managed_operation_repository_v2(),
+                    log=log,
+                    composer=AgentComposer(
+                        catalog=lambda: getattr(app.state, "client_factory", None)
+                    ),
+                    authority=av.utu_authority(),
+                )
+                register_genesis_initiation(
+                    synaptic_registry_instance,
+                    GenesisInitiation(
+                        handoffs=bindings.handoffs,
+                        provisions=bindings.provisions,
+                        authority=av.utu_authority(),
+                        exchange=av.synaptic_exchange(),
+                        provisioner=provisioner,
+                        log=log,
+                    ),
+                )
+                if len(bindings.bootstrap) > 1:
+                    raise ValueError("Local Genesis allows exactly one bootstrap lease")
+                for entry in bindings.bootstrap:
+                    from src.domains.agentverse.agents.genesis.bootstrap import EnkiBootstrap
+
+                    handoff = next(h for h in bindings.handoffs if h.slot == entry.slot)
+                    # Runs after the model catalog exists (composition needs it).
+                    app.state.bootstrap_genesis = EnkiBootstrap(
+                        entry=entry,
+                        handoff=handoff,
+                        provision=bindings.provisions[entry.slot],
+                        definitions=av.db_service(),
+                        sessions=sessions,
+                        authority=av.utu_authority(),
+                        exchange=av.synaptic_exchange(),
+                        log=log,
+                    ).ensure
         await sessions.start()
 
     app.state.start_genesis_sessions = start

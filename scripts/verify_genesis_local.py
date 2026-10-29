@@ -13,7 +13,7 @@ import httpx
 from jose import jwt
 
 from src.base.events.v2.contracts import EventPermissionError
-from src.domains.agentverse.dependencies.genesis_local import ADAM, OWNER, TENANT, require_local
+from src.domains.agentverse.dependencies.genesis_local import ENKI, OWNER, TENANT, require_local
 from src.domains.agentverse.runtime.instances_v2 import AgentInstanceKey
 
 
@@ -39,7 +39,7 @@ async def main() -> None:
             os.environ["LOCAL_JWT_SECRET"],
             algorithm="HS256",
         )
-        key = AgentInstanceKey(TENANT, OWNER, ADAM, sid)
+        key = AgentInstanceKey(TENANT, OWNER, ENKI, sid)
         headers = {"Authorization": "Bearer " + token}
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://local"
@@ -53,7 +53,7 @@ async def main() -> None:
                     await av.khepri().awaken(key)
                     runtime = av.instance_registry_v2().get(key)
                     client = runtime.ncsc
-                    result = await client.request("chat.context", {"text": "Adam verification"})
+                    result = await client.request("chat.context", {"text": "Enki verification"})
                     assert result["usage_meta"]["provider"] == "chat_v2"
                 response = await http.post("/api/v2/agentverse/session/logout", headers=headers)
                 assert response.status_code == 204

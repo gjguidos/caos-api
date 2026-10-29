@@ -70,6 +70,7 @@ class _Caller:
     session: str
     fingerprint: str
     expires: float
+    origin: str = "session"
 
 
 @dataclass
@@ -212,6 +213,7 @@ class RedisAgentSessionAuthority:
                     for k in ("tenant", "user", "session", "fingerprint")
                 )
                 or record.get("status") not in {"active", "pending", "revoked"}
+                or record.get("origin", "session") not in {"session", "bootstrap"}
                 or not isinstance(record.get("expires"), int | float)
                 or isinstance(record["expires"], bool)
                 or not math.isfinite(record["expires"])
@@ -249,12 +251,19 @@ class RedisAgentSessionAuthority:
             raise EventPermissionError("Genesis token expired")
         return record
 
+    async def _human_record(self, caller: _Caller) -> dict[str, Any]:
+        """A bearer or ticket can never adopt a bootstrap lease, even by session ID."""
+        record = await self._bound_record(caller)
+        if caller.origin != "session" or record.get("origin", "session") != "session":
+            raise EventPermissionError("Authenticated session required")
+        return record
+
     @asynccontextmanager
     async def authenticated(
         self, token: str, *, for_logout: bool = False
     ) -> AsyncIterator[VerifiedAgentSession]:
         caller = await self._verify(token)
-        await self._bound_record(caller)
+        await self._human_record(caller)
         binding = _Binding(caller)
         marker = self._caller.set(binding)
         try:
@@ -279,6 +288,7 @@ class RedisAgentSessionAuthority:
             session_id,
             frozenset(record["agents"]),
             True,
+            record.get("origin", "session"),
         )
 
     async def issue_ws_ticket(self) -> str:
@@ -288,7 +298,7 @@ class RedisAgentSessionAuthority:
         the verified caller binding is retained; the bearer is never stored.
         """
         binding = self._caller.get()
-        if binding is None or not binding.active:
+        if binding is None or not binding.active or binding.caller.origin != "session":
             raise EventPermissionError("Authenticated session context required")
         await self.get_session(binding.caller.session)
         ticket = secrets.token_urlsafe(32)
@@ -323,7 +333,7 @@ return value
         if not raw:
             raise EventPermissionError("WebSocket ticket expired or consumed")
         caller = _Caller(**json.loads(raw))
-        await self._bound_record(caller)
+        await self._human_record(caller)
         binding = _Binding(caller)
         marker = self._caller.set(binding)
         try:
@@ -332,14 +342,82 @@ return value
             binding.active = False
             self._caller.reset(marker)
 
-    async def check_execution_session(self, key: AgentInstanceKey) -> None:
-        """UTU permit hook; no HTTP context required for existing runtimes."""
+    async def check_execution_session(self, key: AgentInstanceKey) -> str:
+        """UTU permit hook; no HTTP context required for existing runtimes.
+
+        Returns the durable record's origin, which UTU binds into the permit.
+        """
         record = await self._active(key.session_id)
         if (record["tenant"], record["user"]) != (
             key.tenant_id,
             key.user_id,
         ) or key.agent_id not in record["agents"]:
             raise EventPermissionError("Genesis execution session mismatch")
+        return str(record.get("origin", "session"))
+
+    @asynccontextmanager
+    async def bootstrap_lease(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        allowed_agent_ids: frozenset[str],
+        seconds: float,
+    ) -> AsyncIterator[VerifiedAgentSession]:
+        """Trusted startup lease; never expose as a route or caller capability.
+
+        Not a login: no token exists, the record is marked ``origin="bootstrap"``,
+        its fingerprint can match no bearer, and it is usable only by the task that
+        opened it. ``user_id`` is the policy-designated owner. Membership fences,
+        durable expiry and UTU revocation apply exactly as for operator sessions;
+        the lease is invalidated through UTU when the context exits.
+        """
+        if self._handler is None:
+            raise EventPermissionError("Bind UTU before opening a bootstrap lease")
+        if not allowed_agent_ids or any(
+            not isinstance(v, str) or not v.strip() for v in allowed_agent_ids
+        ):
+            raise ValueError("A bootstrap lease requires explicit agent IDs")
+        if not 0 < seconds <= 600:
+            raise ValueError("A bootstrap lease must be short-lived")
+        caller = _Caller(
+            tenant_id,
+            user_id,
+            "bootstrap-" + secrets.token_hex(16),
+            "bootstrap:" + secrets.token_hex(32),
+            self._clock() + seconds,
+            "bootstrap",
+        )
+        record = {
+            "tenant": caller.tenant,
+            "user": caller.user,
+            "session": caller.session,
+            "fingerprint": caller.fingerprint,
+            "expires": caller.expires,
+            "agents": {agent: True for agent in allowed_agent_ids},
+            "status": "active",
+            "origin": "bootstrap",
+        }
+        created = await self._eval(
+            _CREATE,
+            [
+                self._field(caller.session),
+                json.dumps(record),
+                caller.expires,
+                self._field(json.dumps([tenant_id, user_id])),
+            ],
+        )
+        if created != 1:
+            raise EventPermissionError("Bootstrap lease denied")
+        binding = _Binding(caller)
+        marker = self._caller.set(binding)
+        try:
+            yield await self.get_session(caller.session)
+        finally:
+            binding.active = False
+            self._caller.reset(marker)
+            # Durable expiry still revokes it if this invalidation cannot complete.
+            await self.invalidate(caller.session)
 
     async def logout(self) -> None:
         binding = self._caller.get()

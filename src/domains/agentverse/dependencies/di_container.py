@@ -105,6 +105,8 @@ class AgentverseContainer(containers.DeclarativeContainer):
     genesis_sessions = providers.Singleton(UnboundAgentSessionAuthority)
     genesis_approvals = providers.Object({})
     genesis_provisions = providers.Object({})
+    genesis_handoffs = providers.Object(())
+    genesis_citizens = providers.Object({})
     synaptic_authorization = providers.Singleton(SynapticAuthorization)
 
     # ------------------------------------------------------------------
@@ -121,6 +123,7 @@ class AgentverseContainer(containers.DeclarativeContainer):
         definitions=db_service,
         sessions=genesis_sessions,
         approvals=genesis_approvals,
+        citizens=genesis_citizens,
         authorization=synaptic_authorization,
     )
 
@@ -370,6 +373,8 @@ def extend_container(
         av.genesis_sessions.override(providers.Object(genesis_security.sessions))
         av.genesis_approvals.override(providers.Object(dict(genesis_security.approvals)))
         av.genesis_provisions.override(providers.Object(dict(genesis_security.provisions)))
+        av.genesis_handoffs.override(providers.Object(genesis_security.handoffs))
+        av.genesis_citizens.override(providers.Object(dict(genesis_security.citizens)))
         av.synaptic_authorization.override(providers.Object(genesis_security.authorization))
 
     # Keep provider bindings lazy. In particular, never call an exchange or
@@ -456,6 +461,8 @@ def extend_container(
     ns.genesis_sessions = av.genesis_sessions
     ns.genesis_approvals = av.genesis_approvals
     ns.genesis_provisions = av.genesis_provisions
+    ns.genesis_handoffs = av.genesis_handoffs
+    ns.genesis_citizens = av.genesis_citizens
     ns.synaptic_authorization = av.synaptic_authorization
     ns.synaptic_exchange = av.synaptic_exchange
     ns.utu_authority = av.utu_authority
@@ -477,6 +484,7 @@ def extend_container(
     # reviewed policy grants them; exposing the providers grants nothing.
     ns.store = av.store
     ns.validation = av.validation
+    ns.caos_log_service = av.caos_log_service
 
     # ------------------------------------------------------------------
     # Backwards-compatible aliases

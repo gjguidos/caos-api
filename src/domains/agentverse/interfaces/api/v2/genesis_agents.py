@@ -3,6 +3,7 @@
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request
+from pydantic import ValidationError
 
 from src.base.events.v2.contracts import EventPermissionError
 from src.domains.agentverse.interfaces.api.v2.genesis_sessions import authenticated_genesis
@@ -54,5 +55,7 @@ async def signal(request: Request, agent_id: str, signal: str, payload: dict[str
             if runtime is None or not runtime.is_active:
                 raise HTTPException(409, "Awaken this session's agent first")
             return await runtime.ncsc.request(signal, payload)
+    except ValidationError as exc:
+        raise HTTPException(422, "Invalid signal payload") from exc
     except EventPermissionError as exc:
         raise HTTPException(403, "Genesis signal denied") from exc

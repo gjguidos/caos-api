@@ -91,7 +91,12 @@ async def session_socket(websocket: WebSocket) -> None:
 @router.post("/local", status_code=201)
 async def provision_local(request: Request) -> dict[str, str]:
     """Local issuer bridge. All membership/grants come from server policy."""
-    from src.domains.agentverse.dependencies.genesis_local import ADAM, OWNER, TENANT, require_local
+    from src.domains.agentverse.dependencies.genesis_local import (
+        JOSHUA,
+        OWNER,
+        TENANT,
+        require_local,
+    )
 
     try:
         require_local()
@@ -110,16 +115,18 @@ async def provision_local(request: Request) -> dict[str, str]:
             for (tenant, agent), approval in av.genesis_approvals().items()
             if tenant == TENANT and approval.enabled and approval.owner_user_id == OWNER
         )
-        if ADAM not in allowed:
+        if JOSHUA not in allowed:
             raise EventPermissionError("Local membership denied")
         definitions = av.db_service()
+        citizens = av.genesis_citizens()
         for agent in sorted(allowed):
+            if (TENANT, agent) in citizens:
+                # Deterministic system citizen: trusted policy identity, no definition.
+                continue
             definition = await definitions.find_by_id(agent)
             if definition is None:
-                # Adam is seeded at startup. A pinned identity (Enki) may not exist
-                # yet; activation still requires its persisted, matching definition.
-                if agent == ADAM:
-                    raise EventPermissionError("Local membership denied")
+                # A pinned identity (Enki) may not exist yet; activation still
+                # requires its persisted, matching definition.
                 continue
             if definition.get("creator") != OWNER or definition.get("tenant_id") != TENANT:
                 raise EventPermissionError("Local ownership denied")

@@ -10,6 +10,7 @@ from typing import Any
 
 from src.base.events.v2.contracts import EventPermissionError
 from src.base.infrastructure.ai.llm_usage import collect_llm_usage
+from src.domains.agentverse.agents.conversational_composition_v2 import supports_v2_conversation
 from src.domains.agentverse.agents.mixins.prompt import PromptMixin
 from src.domains.agentverse.entities.cognitive_v2 import (
     AgentCognitiveProfile,
@@ -88,13 +89,18 @@ class CognitiveResponseV2:
             definition.get("tenant_id", turn.tenant_id) != turn.tenant_id
         ):
             raise EventPermissionError("Definition scope mismatch")
-        if definition.get("type") != "chat":
+        if not supports_v2_conversation(definition.get("type"), definition.get("role_name")):
             raise CognitiveResponseUnavailable("composition_unavailable")
         try:
             role_key = role_registry_instance.resolve_key(
                 definition.get("role_name") or "general", kind="role"
             )
             role = role_registry_instance.get_role(role_key)
+            if definition.get("type") == "form" and (role.agent_group, role.agent_subclass) != (
+                "interactive_ui",
+                "operational",
+            ):
+                raise ValueError("Conversational Form requires its approved operational role")
             personality = definition.get("personality_key") or DEFAULT_PERSONALITY_KEY
             personality_registry_instance.get(
                 personality

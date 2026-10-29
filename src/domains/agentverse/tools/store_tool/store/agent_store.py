@@ -43,12 +43,22 @@ class AgentDefinitionPersistence(Protocol):
 
 def idempotency_scope(context: StoreWriteContext, key: str) -> str:
     provenance = context.provenance
+    return scope_digest(
+        tenant_id=provenance.tenant_id,
+        subject_id=provenance.subject_id,
+        principal_id=provenance.principal_id,
+        key=key,
+    )
+
+
+def scope_digest(*, tenant_id: str, subject_id: str, principal_id: str, key: str) -> str:
+    """Store's write scope; independent of session and origin, so retries converge."""
     return sha256_hex(
         {
             "resource_type": "agent",
-            "tenant": provenance.tenant_id,
-            "subject": provenance.subject_id,
-            "principal": provenance.principal_id,
+            "tenant": tenant_id,
+            "subject": subject_id,
+            "principal": principal_id,
             "key": key,
         }
     )

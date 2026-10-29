@@ -89,6 +89,13 @@ class _Frozen(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class GenesisInitiationMetadata(_Frozen):
+    event_version: Literal[1]
+    slot: Literal["enki"]
+    executor_id: Identifier
+    creation_digest: Digest
+
+
 class GenesisValidationMetadata(_Frozen):
     resource_type: Literal["agent"]
     valid: StrictBool
@@ -125,6 +132,9 @@ class _EventSpec:
 
 
 EVENT_CATALOG: dict[str, _EventSpec] = {
+    "genesis.initiation.authorized": _EventSpec(
+        metadata=GenesisInitiationMetadata, outcomes=frozenset({"succeeded"})
+    ),
     "genesis.validation.completed": _EventSpec(
         metadata=GenesisValidationMetadata, outcomes=frozenset({"succeeded", "rejected"})
     ),
@@ -139,6 +149,7 @@ EVENT_CATALOG: dict[str, _EventSpec] = {
     ),
 }
 EventType = Literal[
+    "genesis.initiation.authorized",
     "genesis.validation.completed",
     "genesis.composition.completed",
     "genesis.store.completed",

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
-from typing import NoReturn, Protocol
+from typing import Literal, NoReturn, Protocol
 
 from src.base.events.v2.contracts import EventPermissionError
 from src.base.events.v2.policy import EventPrincipal
@@ -27,6 +27,21 @@ class AgentActivationApproval:
 
 
 @dataclass(frozen=True, slots=True)
+class SystemCitizen:
+    """Trusted deterministic principal identity; not a Cognitive Agent definition.
+
+    Every Cognitive Agent is a System Citizen, but not every System Citizen is a
+    Cognitive Agent. A configured citizen replaces the persisted ``coll_agents``
+    definition as identity evidence only. It grants nothing: session, approval,
+    UTU permit and CPBX grants are still required for every resolution.
+    """
+
+    tenant_id: str
+    agent_id: str
+    name: str
+
+
+@dataclass(frozen=True, slots=True)
 class VerifiedAgentSession:
     """An authority's current, authenticated session record, not a caller claim.
 
@@ -41,6 +56,9 @@ class VerifiedAgentSession:
     session_id: str
     allowed_agent_ids: frozenset[str] = frozenset()
     active: bool = False
+    # "bootstrap" marks a trusted startup lease: no human authenticated, and
+    # user_id is the policy-designated owner rather than a requester.
+    origin: Literal["session", "bootstrap"] = "session"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "allowed_agent_ids", frozenset(self.allowed_agent_ids))
@@ -93,11 +111,23 @@ class AgentPrincipalResolver:
         sessions: AgentSessionAuthority,
         authorization: SynapticAuthorization,
         approvals: Mapping[tuple[str, str], AgentActivationApproval] | None = None,
+        citizens: Mapping[tuple[str, str], SystemCitizen] | None = None,
     ) -> None:
         self._definitions = definitions
         self._sessions = sessions
         self._authorization = authorization
         self._approvals = dict(approvals or {})
+        self._citizens = dict(citizens or {})
+        for scope, citizen in self._citizens.items():
+            if not isinstance(citizen, SystemCitizen):
+                raise TypeError("Genesis requires trusted SystemCitizen records")
+            if scope != (citizen.tenant_id, citizen.agent_id):
+                raise ValueError("System citizen scope mismatch")
+            if any(
+                not isinstance(v, str) or not v.strip()
+                for v in (citizen.tenant_id, citizen.agent_id, citizen.name)
+            ):
+                raise ValueError("System citizen identity must be non-empty")
         for scope, approval in self._approvals.items():
             if not isinstance(approval, AgentActivationApproval):
                 raise TypeError("Genesis requires trusted AgentActivationApproval records")
@@ -151,6 +181,11 @@ class AgentPrincipalResolver:
             or approval.owner_user_id != key.user_id
         ):
             deny()
+
+        # A trusted citizen record is the identity evidence for deterministic
+        # system principals; coll_agents is neither consulted nor required.
+        if (key.tenant_id, key.agent_id) in self._citizens:
+            return EventPrincipal(agent_id=key.agent_id, tenant_id=key.tenant_id)
 
         definition = await self._definitions.find_by_id(key.agent_id)
         if not isinstance(definition, Mapping):

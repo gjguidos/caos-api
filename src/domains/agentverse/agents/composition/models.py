@@ -42,10 +42,10 @@ class V2CompositionPolicy(BaseModel):
     role_tools_supported: bool
 
 
-# The V2 runtime today: chat agents, one governed LLM inference, no role tools.
+# Chat and the explicitly approved form/enki composition; no role-tool execution.
 CURRENT_V2_POLICY = V2CompositionPolicy(
     runtime_version="v2",
-    agent_types=frozenset({"chat"}),
+    agent_types=frozenset({"chat", "form"}),
     required_backends=frozenset({"llm"}),
     role_tools_supported=False,
 )

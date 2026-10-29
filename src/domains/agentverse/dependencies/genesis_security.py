@@ -5,9 +5,12 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
+from src.domains.agentverse.agents.genesis.bootstrap import GenesisBootstrap
+from src.domains.agentverse.agents.genesis.initiation import GenesisHandoff
 from src.domains.agentverse.agents.lifecycle.agent_principal_resolver import (
     AgentActivationApproval,
     RevocableAgentSessionAuthority,
+    SystemCitizen,
 )
 from src.domains.agentverse.ncsc.authorization import SynapticAuthorization
 from src.domains.agentverse.tools.store_tool.models import ProvisionedIdentity
@@ -23,3 +26,8 @@ class GenesisSecurityBindings:
     approvals: Mapping[tuple[str, str], AgentActivationApproval] = field(default_factory=dict)
     # Policy-pinned identities for store.create.provisioned, keyed by slot.
     provisions: Mapping[str, ProvisionedIdentity] = field(default_factory=dict)
+    handoffs: tuple[GenesisHandoff, ...] = ()
+    # Deterministic system principals resolved without a coll_agents definition.
+    citizens: Mapping[tuple[str, str], SystemCitizen] = field(default_factory=dict)
+    # Policy-scoped startup leases; each may only initiate its pinned handoff.
+    bootstrap: tuple[GenesisBootstrap, ...] = ()

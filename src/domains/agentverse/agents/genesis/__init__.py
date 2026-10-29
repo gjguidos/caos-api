@@ -470,10 +470,13 @@ class _Attempt:
             result = await log.append(event, authorization=authorization)
             record = result.record
         except LogConflict:
-            # The only legitimate divergence: a store replay reports created=False for a
-            # write whose evidence (created=True) an earlier attempt already recorded.
+            # Preserve earlier successes: Store may report created=False on replay,
+            # and a fresh verified session has a different authorization evidence digest.
             record = await log.get(self._permit.key.tenant_id, event.event_id)
-            if not _same_store_fact(record, event, authorization):
+            if not (
+                _same_store_fact(record, event, authorization)
+                or _same_success_after_reauthentication(record, event, authorization)
+            ):
                 raise
         self._events.append(record.event_id)
         return record
@@ -512,6 +515,46 @@ class _Attempt:
             generation=self._record.execution.generation,
             command_id=uuid4(),
         )
+
+
+def _same_success_after_reauthentication(
+    record: CAOSLogRecord | None, event: LogEvent, authorization: Any
+) -> bool:
+    """Keep an earlier observed success, never relabel it with a new session.
+
+    G1.4 may recover under a newly verified operator session after logout/expiry.
+    A session-bound evidence digest changes, but an immutable logical success
+    belongs to the operation, not to its retry. Identity and policy must still
+    match and every fact must be identical (Store may report an idempotent replay).
+    The caller has independently re-executed the governed step under live authority.
+    """
+    if record is None or record.outcome != "succeeded" or event.outcome != "succeeded":
+        return False
+    # The session-bound evidence digest and origin (operator session or bootstrap
+    # lease) change with the authority that retried; identity and policy may not.
+    reauthenticated = {"evidence_digest", "origin"}
+    if record.authorization.model_dump(exclude=reauthenticated) != authorization.model_dump(
+        exclude=reauthenticated
+    ):
+        return False
+    return (
+        record.event_id == event.event_id
+        and record.event_type == event.event_type
+        and record.subject == event.subject
+        and record.target == event.target
+        and record.correlation_id == event.correlation.correlation_id
+        and record.causation_id == event.correlation.causation_id
+        and record.operation_id == event.correlation.operation_id
+        and (
+            record.metadata == event.metadata
+            or (
+                event.event_type == "genesis.store.completed"
+                and record.metadata["created"] is True
+                and event.metadata["created"] is False
+                and _same_store_fact(record, event, record.authorization)
+            )
+        )
+    )
 
 
 def _same_store_fact(record: CAOSLogRecord | None, event: LogEvent, authorization: Any) -> bool:

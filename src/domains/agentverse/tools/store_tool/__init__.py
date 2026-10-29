@@ -171,9 +171,14 @@ class ProvisionedStoreCapability:
         return await self._tool._create(
             entry.resource_type,
             request.payload,
-            idempotency_key=f"provisioned:{entry.slot}",
+            idempotency_key=provisioned_key(entry.slot),
             context=replace(context, provisioned=entry),
         )
+
+
+def provisioned_key(slot: str) -> str:
+    """The idempotency key of a policy-pinned slot: one resource per slot, ever."""
+    return f"provisioned:{slot}"
 
 
 def register_store_create(registry: SynapticRegistry, tool: StoreTool) -> SynapticBinding:

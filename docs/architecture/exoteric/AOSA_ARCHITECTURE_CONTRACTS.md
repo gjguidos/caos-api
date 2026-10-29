@@ -8,7 +8,7 @@ Canonical description of the **Agent, Tool/Action, Workflow, Validation and Gove
 - **Partial** — present but incomplete; the gap is named.
 - **Proposed** — intended architecture; *not* a field, API or behavior that exists.
 
-Reviewed revision: `feature/ops-v2` at `a98ee98` plus the uncommitted Store Tool V1 working tree (2026-10-29). Recheck source before relying on any claim; this document is not runtime policy, a registry or an authorization source. Repository paths are root-relative; `agentverse/` abbreviates `src/domains/agentverse/`.
+Reviewed revision: `feature/ops-v2` at `ac36d84` plus uncommitted G1.4 (2026-10-29). Recheck source before relying on any claim; this document is not runtime policy, a registry or an authorization source. Repository paths are root-relative; `agentverse/` abbreviates `src/domains/agentverse/`.
 
 ---
 
@@ -19,6 +19,8 @@ Reviewed revision: `feature/ops-v2` at `a98ee98` plus the uncommitted Store Tool
 - The persisted definition is the existing Pydantic **`Agent`** model (`agentverse/entities/agent.py`) stored in MongoDB `coll_agents`. Do not introduce a replacement agent schema.
 - Composition fields: `type → role_name → personality_key → rule_pack_ids`, plus `tools: list[AgentToolRef]`, `workflows: list[str]` (catalog keys the agent may run) and resource back-end selectors (`llm_type`, `audio_type`, …).
 - Server-owned fields: `id`, `creator`, `ownership`, `tenant_id`, `exposure`, `runtime_version` (`"v1"` default for historical records, `"v2"` explicit). Client requests (`AgentRequest`, `AgentUpdateRequest`) reject or strip them; `genesis_local_seed` is trusted-bootstrap provenance only.
+- **System Citizens (uncommitted):** every Cognitive Agent is a System Citizen, but not every System Citizen is a Cognitive Agent. Deterministic citizens (local JOSHUA and Genesis) are declared in the reviewed policy (`system_citizens`, `SystemCitizen` in `agentverse/agents/lifecycle/agent_principal_resolver.py`) and have no `coll_agents` definition. The same UTU resolver substitutes the trusted record for the definition only; session, membership, approval, permit, revocation and CPBX grants are unchanged. A citizen must have an approval and can never be a provisioned/handoff target; it grants nothing and cannot join conversations (no Cognitive definition).
+- **Bootstrap lease and authorization origin (uncommitted):** UTU authority always comes from a durable session record. Besides operator sessions (JWT-bound), the reviewed policy may declare a `bootstrap` entry: a trusted, short-lived startup lease (`RedisAgentSessionAuthority.bootstrap_lease`) for exactly one handoff's two System Citizens, never a Cognitive Agent. It is not a login (no token; no bearer, ticket or WebSocket can adopt it), it obeys membership fences, durable expiry and UTU revocation, and it is revoked when the startup task ends. UTU binds the record's `origin` into every `ExecutionPermit` and rechecks it; `AuthorizationProvenance.origin` (`session` | `bootstrap`, default omitted when serialized) reaches Seshat and Store, so `subject_id` reads as the authenticated requester for `session` and as the policy-designated owner for `bootstrap`.
 - `AgentRequest` (`agentverse/entities/agent_request.py`) is the V1 client creation input. It is **not** strict (`extra="allow"`); see the [Validation Contract](#4-validation-contract).
 
 ### 1.2 Agent Soul and personality — Implemented
@@ -40,7 +42,7 @@ Communication is part of what an agent *is*, not an optional tool the user happe
 | Turn execution | `agent.respond()` through the legacy UniversalOrchestrator/context path and V1 `ToolManager` | `ClientEventDispatcherV2` → `Khepri.awaken` → `ManagedAgentV2.ncsc.request("chat.response" \| "chat.context")` through CPBX |
 | Model call | Chat tool + LLM invoker inside the V1 pipeline | `CognitiveResponseV2` (`agentverse/services/cognitive_response_v2.py`): one governed inference; soul + role + rule packs + `prompt`; **no tools, no workflows, no external actions** |
 | Creation self-test | `DivineOrchestrationService.create_agent` calls `AgentChatService.test_agent()`, which spawns the agent and runs `agent.respond("Hello. Can you hear me?")`, then sleeps it | None yet; a V2 definition becomes conversational only after approval, grants and activation |
-| Gate | WebSocket user + V1 access checks | Verified session, UTU permit, `chat.context` grant for the conversation and `chat.response` grant for LLM mode; definition must be `type="chat"`, `runtime_version="v2"`, `creator == session user` |
+| Gate | WebSocket user + V1 access checks | Verified session, UTU permit, `chat.context` grant for the conversation and `chat.response` grant for LLM mode; definition must be Chat or the approved `form/enki` composition, `runtime_version="v2"`, `creator == session user` |
 
 `chat.context` (`agentverse/tools/chat_tool_v2/synaptic.py`) is registered at import. `chat.response` is registered at Genesis startup only when the reviewed policy grants it (`agentverse/dependencies/genesis_bootstrap.py`).
 
@@ -135,7 +137,7 @@ The V1 `UniversalOrchestrator` (fixed analyze → plan → task → refine → e
 
 ## 4. Validation Contract
 
-**Implemented (agent resource, uncommitted).** `data.validation@1.0.0` (provider `system.validation`, `agentverse/tools/validation_tool/`; tests `agentverse/tests/tools/test_data_validation_tool.py`) is synaptic-only, read-only and registered at Genesis startup only when the reviewed policy grants it or has a trusted line to it. The requester is the CPBX-issued permit subject. Points 1–5 below hold for `resource_type="agent"`; point 6 is unchanged (the Store Tool does not call it).
+**Implemented (agent resource, `ac36d84`).** `data.validation@1.0.0` (provider `system.validation`, `agentverse/tools/validation_tool/`; tests `agentverse/tests/tools/test_data_validation_tool.py`) is synaptic-only, read-only and registered at Genesis startup only when the reviewed policy grants it or has a trusted line to it. The requester is the CPBX-issued permit subject. Points 1–5 below hold for `resource_type="agent"`; point 6 is unchanged (the Store Tool does not call it).
 
 1. **Persisted target:** the existing `Agent` model is the persisted definition. Validation produces a normalized `Agent`-compatible definition; it never writes.
 2. **Strict input contract:** agent creation input is validated by a strict (`extra="forbid"`) contract that excludes server-owned fields (`id`, `ownership`, `tenant_id`, `creator`, `exposure`, `runtime_version`, seed provenance). `AgentRequest` (`extra="allow"`) is not that contract.
@@ -155,10 +157,21 @@ The V1 `UniversalOrchestrator` (fixed analyze → plan → task → refine → e
 | **UTU** (`agentverse/security/utu.py`) | Resource read/discover decisions, revocable execution permits, session binding, lifecycle authorization, policy install (CAS) and revocation; delegates grant evaluation to `SynapticAuthorization` | Routing, execution, persistence |
 | **NCSC / CPBX** (`agentverse/ncsc/`) | Resolve exact bindings, enforce supplied policy (root grant + trusted lines), provider target, lineage, execution gate and permit watch | Cognitive recipes, workflow orchestration, deciding policy |
 | **Enlil** (OPS V2, `src/base/operations/v2/`) | **Partial:** durable admission, managed fencing and bounded discovery (`operations.dispatch.discover`, provider `system.enlil`, no production caller yet) | Executing admitted work, minting authority (workers/recovery are proposed, OPS2-04C.2+) |
-| **Seshat** (`agentverse/audit/`, `coll_logs`; uncommitted) | Cognitive Audit and Provenance Service: append-only, tenant-isolated, idempotent audit records (`CAOSLogRecord` v1) attributed only from UTU permit provenance; event-specific metadata allowlists; trusted in-process service (Genesis is the first producer) | Authorization, grants, reading for agents/clients (no API), execution, atomicity with the audited effect |
-| **Genesis provisioner** (`agentverse/agents/genesis/`; uncommitted) | Coordinates `data.validation` → `AgentComposer` → `store.create.provisioned` through CPBX with the Genesis principal's client, under one OPS V2 managed operation, recording each confirmed outcome with Seshat; resolves its own interrupted attempts via OPS V2 takeover + `resolve_reconciled` and re-executes idempotently | Constructing permits, adding grants, activation (Khepri), asserting outcomes it did not observe |
+| **Seshat** (`agentverse/audit/`, `coll_logs`) | Cognitive Audit and Provenance Service: append-only, tenant-isolated, idempotent audit records (`CAOSLogRecord` v1) attributed only from UTU permit provenance; event-specific metadata allowlists; trusted in-process service | Authorization, grants, reading for agents/clients (no API), execution, atomicity with the audited effect |
+| **JOSHUA initiation** (`agentverse/agents/genesis/initiation.py`; G1.4 uncommitted) | Explicit local-only initiation grant and server-pinned handoff; current UTU approvals for both principals, mandatory initiation evidence, separate Genesis client, correlated result through the existing V2 signal interface | Store/validation grants, forging permits, redefining Genesis's chain, activating Enki |
+| **Genesis provisioner** (`agentverse/agents/genesis/`) | Coordinates `data.validation` → `AgentComposer` → `store.create.provisioned` through CPBX with the Genesis principal's client, under one OPS V2 managed operation, recording each confirmed outcome with Seshat; resolves its own interrupted attempts via OPS V2 takeover + `resolve_reconciled` and re-executes idempotently | Constructing permits, adding grants, activation (Khepri), asserting outcomes it did not observe |
 | **Khepri** (`agentverse/agents/lifecycle/khepri.py`) | Agent activation through `AgentLifecycleService` (Anubis deactivates) | Granting capabilities, creating definitions |
-| **Store Tool** (`store.create`, `store.create.provisioned`) | Idempotent, insert-only persistence of approved resources (currently `agent`) with provenance; `store.create.provisioned` (uncommitted) creates only tenant-owned identities pinned in the reviewed Genesis policy (`provisioned` slots: fixed ID, principal, subject, tenant) and confers no general `store.create` | Validation of references, approvals, activation, system ownership (still reserved) |
+| **Store Tool** (`store.create`, `store.create.provisioned`) | Idempotent, insert-only persistence of approved resources (currently `agent`) with provenance; `store.create.provisioned` creates only tenant-owned identities pinned in the reviewed Genesis policy (`provisioned` slots: fixed ID, principal, subject, tenant) and confers no general `store.create` | Validation of references, approvals, activation, system ownership (still reserved) |
+
+**Form-first Enki V2 (uncommitted):** presentation and conversation are independent.
+The local slot pins `type="form"`; registered role `enki` is operational and requires
+no executable tools. V2 composition and `chat.response` support only the reviewed
+`form/enki` pair in addition to existing Chat Agents, with unchanged UTU/Soul/backend
+checks. This is not generic Form execution or a creation grant. The version-1
+`caos.agent_creation_draft` contract prepares local previews only; authoritative
+registry validation and privileged submission require a future approved capability.
+Historical chat creation requests fail the current pin before successful-operation
+replay. Existing persisted definitions and historical evidence are not patched.
 
 ### 5.2 Distinct decisions — never collapse them
 
@@ -177,18 +190,21 @@ Signed events, event names, agent IDs or names, symbolic roles and LLM output ar
 
 Seshat is the Cognitive Audit and Provenance Service. Its records are **evidence**, never authorization, and its producer contract (`AuditSink` in `agentverse/audit/service.py`) hides storage so ingestion can change without changing producers.
 
-**Implemented (L1 + L2, uncommitted):**
+**Implemented (L1 + L2, `ac36d84`; G1.4 initiation uncommitted):**
 
-- **What is audited.** Only authoritative lifecycle transitions, mandatory governance decisions, consequential effects and terminal outcomes, written by the trusted coordinator that owns the operation. CPBX synapses, child contexts, worker messages and tool invocations are **not** persisted automatically. Genesis writes at most one record per audited step per operation (three on success):
+- **What is audited.** Only authoritative lifecycle transitions, mandatory governance decisions, consequential effects and terminal outcomes, written by the trusted coordinator that owns the operation. CPBX synapses, child contexts, worker messages and tool invocations are **not** persisted automatically. Genesis writes three execution records on success, plus G1.4's initiation evidence per distinct initiating authorization:
 
   | Event | Classification |
   | --- | --- |
+  | `genesis.initiation.authorized` | G1.4 governance decision: verified JOSHUA/user, server-pinned Genesis executor and Enki target; event version 1, durable before provisioning |
   | `genesis.validation.completed` | Governance decision (definition admissible for the requester) |
   | `genesis.composition.completed` | Governance decision (trusted V2 policy: runtime version, backend selection) |
   | `genesis.store.completed` | Consequential effect + terminal success evidence |
   | `genesis.store.failed` | Consequential effect outcome (rejected/failed) |
 
 - **Mutable state lives in OPS V2.** Progress, attempts, leases and retry intent are the managed operation (`operations_v2`); there is no shared mutable audit document.
+- **G1.4 initiation is separate authority, not impersonation.** `genesis.enki.request@1.0.0` (`system.genesis`, `agentverse/agents/genesis/initiation.py`) is registered only by local bootstrap. Static JOSHUA has only the initiation grant; the reviewed tenant/user/JOSHUA → Genesis → Enki binding is server-owned. The trusted adapter re-resolves both current approvals through UTU and obtains a separate Genesis client for the same live session/user. CPBX never changes the original principal through a trusted line. Legacy Joshu-A is unchanged; Enki is not activated.
+- **Initiator evidence is not execution evidence.** The initiation record attributes JOSHUA and the authorizing user; the three successful execution records attribute Genesis. Shared operation identity links these facts without relabelling execution provenance. The initiation ID is stable per operation and initiating authorization digest, so retries reuse it; a new authenticated session records a new authorization fact. Existing successful execution evidence may be reused after re-authentication only for the same identity, policy and logical fact; its original provenance remains immutable.
 - **Correlation without per-event documents.** `correlation_id` is the operation ID (also passed to every CPBX request); audit causation chains operation → validation → composition → store. Internal events are correlated, not individually stored.
 - **Small, immutable, idempotent, independently insertable.** One document per fact, identity on the built-in `_id`, no updates; every field is bounded and the whole record is capped at 16 KiB (`MAX_RECORD_BYTES`).
 - **Stable identities.** A successful logical step has one ID per operation (an idempotent retry reuses it); a rejection/failure has one ID per attempt (repeated failures stay distinct).

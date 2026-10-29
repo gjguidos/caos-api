@@ -87,6 +87,9 @@ def permit_provenance(permit: ExecutionPermit, signal: str) -> AuthorizationProv
                 "session": key.session_id,
                 "versions": list(permit.versions),
                 "signal": signal,
+                # Session-origin digests are unchanged from before origin existed.
+                **({"origin": permit.origin} if permit.origin != "session" else {}),
             }
         ),
+        origin=permit.origin,
     )

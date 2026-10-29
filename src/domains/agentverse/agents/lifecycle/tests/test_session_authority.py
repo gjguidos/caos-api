@@ -331,3 +331,81 @@ async def test_idle_lifecycle_observes_expiry_without_request_context(session_en
             await asyncio.sleep(0.01)
     s.env.runtime.revoke.assert_called()
     s.env.runtime.stop.assert_awaited_once()
+
+
+# --- Bootstrap lease: trusted startup authority, never a login ------------------------
+
+
+def lease(s, **changes):
+    options = dict(
+        tenant_id="tenant", user_id="owner", allowed_agent_ids=frozenset({"agent"}), seconds=60
+    )
+    return s.sessions.bootstrap_lease(**{**options, **changes})
+
+
+@pytest.mark.asyncio
+async def test_operator_permits_keep_session_origin_and_unchanged_provenance(session_env):
+    from src.domains.agentverse.operations.admission import permit_provenance
+
+    s = session_env
+    async with s.sessions.authenticated(s.token) as session:
+        assert session.origin == "session"
+        permit = (await s.env.utu.resolve_agent_principal(KEY)).permit
+    assert permit.origin == "session"
+    provenance = permit_provenance(permit, "chat.respond")
+    # Records written before origin existed keep their exact serialized form.
+    assert "origin" not in provenance.model_dump(mode="json")
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_lease_is_origin_bound_and_cannot_become_a_login(session_env):
+    from src.domains.agentverse.operations.admission import permit_provenance
+    from src.domains.agentverse.security.revocation import ExecutionPermit
+
+    s = session_env
+    async with lease(s) as session:
+        assert (session.origin, session.active, session.user_id) == ("bootstrap", True, "owner")
+        key = replace(KEY, session_id=session.session_id)
+        principal = await s.env.utu.resolve_agent_principal(key)
+        assert principal.permit.origin == "bootstrap"
+        provenance = permit_provenance(principal.permit, "chat.respond")
+        assert provenance.model_dump(mode="json")["origin"] == "bootstrap"
+        # A permit claiming the operator origin for the lease is not UTU's permit.
+        with pytest.raises(EventPermissionError):
+            await s.env.utu.check_permit(ExecutionPermit(key, principal.permit.versions))
+        # No browser credential can be minted from a lease.
+        with pytest.raises(EventPermissionError):
+            await s.sessions.issue_ws_ticket()
+        # A signed bearer naming the lease's session ID cannot adopt it.
+        with pytest.raises(EventPermissionError):
+            async with s.sessions.authenticated(s.sign(sid=session.session_id)):
+                pass
+    # Leaving the context revokes it through UTU; no reference survives.
+    for call in (
+        lambda: s.env.utu.check_permit(principal.permit),
+        lambda: s.sessions.get_session(session.session_id),
+    ):
+        with pytest.raises(EventPermissionError):
+            await call()
+    async with lease(s) as other:
+        assert other.session_id != session.session_id
+        with pytest.raises(EventPermissionError):
+            await s.env.utu.resolve_agent_principal(key)  # the first lease stays revoked
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_lease_is_scoped_and_respects_membership(session_env):
+    s = session_env
+    async with lease(s) as session:
+        with pytest.raises(EventPermissionError):  # not a leased agent
+            await s.env.utu.resolve_agent_principal(
+                replace(KEY, session_id=session.session_id, agent_id="other")
+            )
+    for changes in (dict(allowed_agent_ids=frozenset()), dict(seconds=0), dict(seconds=3600)):
+        with pytest.raises(ValueError):
+            async with lease(s, **changes):
+                pass
+    await s.sessions.remove_membership("tenant", "owner")
+    with pytest.raises(EventPermissionError):
+        async with lease(s):
+            pass

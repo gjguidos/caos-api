@@ -24,6 +24,7 @@ from src.domains.agentverse.agents.composition.models import (
     CompositionResult,
     V2CompositionPolicy,
 )
+from src.domains.agentverse.agents.conversational_composition_v2 import supports_v2_conversation
 from src.domains.agentverse.agents.factory import AgentFactory
 from src.domains.agentverse.services.agent_service import AgentService
 from src.domains.agentverse.tools.validation_tool.models import (
@@ -97,7 +98,9 @@ class AgentComposer:
             return fail("validation.normalized", "validation.not_valid", "Normalized input invalid")
 
         resolved = validation.resolved
-        if data.type not in policy.agent_types:
+        if data.type not in policy.agent_types or not supports_v2_conversation(
+            data.type, data.role_name
+        ):
             issues.append(
                 CompositionIssue(
                     path="type",

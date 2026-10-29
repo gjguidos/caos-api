@@ -184,6 +184,10 @@ def service(mongo: Any = None, clock: Clock | None = None) -> SimpleNamespace:
 
 
 GENESIS_EVENTS = {
+    "genesis.initiation.authorized": (
+        "succeeded",
+        {"event_version": 1, "slot": "enki", "executor_id": GENESIS, "creation_digest": "a" * 64},
+    ),
     "genesis.validation.completed": (
         "rejected",
         {
