@@ -74,22 +74,15 @@ async def repositories() -> AsyncIterator[
 ]:
     if os.environ.get("OPS2_MONGO_INTEGRATION") != "1":
         pytest.skip("Set OPS2_MONGO_INTEGRATION=1 for real Mongo managed aggregate tests")
-    from src.base.dependencies.containers.db_container import DatabaseContainer
+    from src.base.infrastructure.db.mongoDB.isolation import isolated_mongo_repository
 
-    database = DatabaseContainer()
-    infrastructure = database.mongodb_repository()
-    name = f"ops4_test_{uuid4().hex}"
-    collection = await infrastructure.get_collection(name)
-    try:
+    # A disposable database, dropped whole: never the configured application DB.
+    async with isolated_mongo_repository("ops4") as infrastructure:
+        name = f"ops4_test_{uuid4().hex}"
         yield (
             MongoManagedOperationRepository(infrastructure, name),
             MongoManagedOperationRepository(infrastructure, name),
         )
-    finally:
-        try:
-            await collection.drop()
-        finally:
-            await database.mongo_client().disconnect()
 
 
 async def activate(

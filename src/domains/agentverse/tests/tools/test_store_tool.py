@@ -616,19 +616,11 @@ async def test_index_is_unique_partial_on_the_store_scope_only() -> None:
 async def mongo() -> AsyncIterator[tuple[Any, str]]:
     if os.environ.get("OPS2_MONGO_INTEGRATION") != "1":
         pytest.skip("Set OPS2_MONGO_INTEGRATION=1 for real Mongo store tests")
-    from src.base.dependencies.containers.db_container import DatabaseContainer
+    from src.base.infrastructure.db.mongoDB.isolation import isolated_mongo_repository
 
-    database = DatabaseContainer()
-    infrastructure = database.mongodb_repository()
-    name = f"store_tool_test_{uuid4().hex}"
-    collection = await infrastructure.get_collection(name)
-    try:
-        yield infrastructure, name
-    finally:
-        try:
-            await collection.drop()
-        finally:
-            await database.mongo_client().disconnect()
+    # A disposable database, dropped whole: never the configured application DB.
+    async with isolated_mongo_repository("store") as infrastructure:
+        yield infrastructure, f"store_tool_test_{uuid4().hex}"
 
 
 def mongo_stack(mongo: tuple[Any, str]) -> SimpleNamespace:

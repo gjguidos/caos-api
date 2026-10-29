@@ -956,20 +956,12 @@ async def test_operation_identity_and_history_are_tenant_and_subject_scoped() ->
 async def mongo() -> AsyncIterator[tuple[Any, str]]:
     if os.environ.get("OPS2_MONGO_INTEGRATION") != "1":
         pytest.skip("Set OPS2_MONGO_INTEGRATION=1 for real Mongo Genesis tests")
-    from src.base.dependencies.containers.db_container import DatabaseContainer
+    from src.base.infrastructure.db.mongoDB.isolation import isolated_mongo_repository
 
-    database = DatabaseContainer()
-    infrastructure = database.mongodb_repository()
-    suffix = uuid4().hex
-    names = (f"genesis_ops_test_{suffix}", f"genesis_logs_test_{suffix}")
-    try:
-        yield infrastructure, names
-    finally:
-        try:
-            for name in names:
-                await (await infrastructure.get_collection(name)).drop()
-        finally:
-            await database.mongo_client().disconnect()
+    # A disposable database, dropped whole: never the configured application DB.
+    async with isolated_mongo_repository("genesis") as infrastructure:
+        suffix = uuid4().hex
+        yield infrastructure, (f"genesis_ops_test_{suffix}", f"genesis_logs_test_{suffix}")
 
 
 @pytest.mark.asyncio

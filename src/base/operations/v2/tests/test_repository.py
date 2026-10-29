@@ -59,18 +59,11 @@ async def repository(request: Any) -> AsyncIterator[OperationRepository]:
     if os.environ.get("OPS2_MONGO_INTEGRATION") != "1":
         pytest.skip("Set OPS2_MONGO_INTEGRATION=1 to exercise configured MongoDB")
 
-    from src.base.dependencies.containers.db_container import DatabaseContainer
+    from src.base.infrastructure.db.mongoDB.isolation import isolated_mongo_repository
 
-    database = DatabaseContainer()
-    infrastructure = database.mongodb_repository()
-    # Each case owns exactly one isolated collection; no shared data is removed.
-    name = f"ops2_test_{uuid4().hex}"
-    collection = await infrastructure.get_collection(name)
-    try:
-        yield MongoOperationRepository(infrastructure, name)
-    finally:
-        await collection.drop()
-        await database.mongo_client().disconnect()
+    # Each case owns a disposable database, dropped whole; no shared data is touched.
+    async with isolated_mongo_repository("ops2") as infrastructure:
+        yield MongoOperationRepository(infrastructure, f"ops2_test_{uuid4().hex}")
 
 
 @pytest.mark.asyncio

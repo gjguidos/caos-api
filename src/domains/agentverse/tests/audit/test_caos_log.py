@@ -638,19 +638,11 @@ def test_existing_operation_logging_is_untouched() -> None:
 async def mongo() -> AsyncIterator[tuple[Any, str]]:
     if os.environ.get("OPS2_MONGO_INTEGRATION") != "1":
         pytest.skip("Set OPS2_MONGO_INTEGRATION=1 for real Mongo log tests")
-    from src.base.dependencies.containers.db_container import DatabaseContainer
+    from src.base.infrastructure.db.mongoDB.isolation import isolated_mongo_repository
 
-    database = DatabaseContainer()
-    infrastructure = database.mongodb_repository()
-    name = f"caos_log_test_{uuid4().hex}"
-    collection = await infrastructure.get_collection(name)
-    try:
-        yield infrastructure, name
-    finally:
-        try:
-            await collection.drop()
-        finally:
-            await database.mongo_client().disconnect()
+    # A disposable database, dropped whole: never the configured application DB.
+    async with isolated_mongo_repository("seshat") as infrastructure:
+        yield infrastructure, f"caos_log_test_{uuid4().hex}"
 
 
 @pytest.mark.asyncio

@@ -73,23 +73,16 @@ async def backend(request: Any) -> AsyncIterator[Backend]:
         return
     if os.environ.get("OPS2_MONGO_INTEGRATION") != "1":
         pytest.skip("Set OPS2_MONGO_INTEGRATION=1 for real configured MongoDB")
-    from src.base.dependencies.containers.db_container import DatabaseContainer
+    from src.base.infrastructure.db.mongoDB.isolation import isolated_mongo_repository
 
-    database = DatabaseContainer()
-    infrastructure = database.mongodb_repository()
-    name = f"ops3_test_{uuid4().hex}"
-    collection = await infrastructure.get_collection(name)
-    try:
+    # A disposable database, dropped whole: never the configured application DB.
+    async with isolated_mongo_repository("ops3") as infrastructure:
+        name = f"ops3_test_{uuid4().hex}"
         yield Backend(
             MongoOwnershipRepository(infrastructure, name),
             MongoOwnershipRepository(infrastructure, name),
             None,
         )
-    finally:
-        try:
-            await collection.drop()
-        finally:
-            await database.mongo_client().disconnect()
 
 
 async def claim(
