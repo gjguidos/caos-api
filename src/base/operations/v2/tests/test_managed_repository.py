@@ -24,6 +24,7 @@ from src.base.operations.v2.managed import (
     InvalidManagedRequest,
     ManagedOperation,
     ReconciliationOnly,
+    ReconciliationRequired,
     StateChangeReceipt,
 )
 from src.base.operations.v2.models import AttemptState, OperationRecord, OperationState
@@ -856,3 +857,116 @@ def test_managed_di_reuses_client_and_preserves_existing_providers() -> None:
     assert isinstance(container.operations.operation_repository(), InMemoryOperationRepository)
     assert isinstance(container.operations.operation_repository_v2(), MongoOperationRepository)
     assert isinstance(container.operations.ownership_repository_v2(), MongoOwnershipRepository)
+
+
+# --- Verified reconciliation resolution -------------------------------------------------------
+
+
+async def resolve(
+    repository: MongoManagedOperationRepository, **overrides: Any
+) -> ManagedOperation:
+    options = {
+        "expected_revision": 1,
+        "attempt_id": FIRST,
+        "owner_id": "worker-b",
+        "generation": 2,
+        "reason": "interrupted attempt reconciled",
+        "at": T2,
+        "command_id": uuid4(),
+    }
+    options.update(overrides)
+    return await repository.resolve_reconciled(OP, **options)
+
+
+async def interrupted(repository: MongoManagedOperationRepository, other: Any) -> ManagedOperation:
+    """FIRST was activated by worker-a, which stopped; worker-b took it over."""
+    await active(repository)
+    await release(other)  # same eligibility for takeover as an expired lease
+    return await takeover(other)
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_resolves_interrupted_attempt_to_retry_pending(
+    repositories: Any,
+) -> None:
+    repository, other = repositories
+    reconciler = await interrupted(repository, other)
+    resolved = await resolve(other)
+    snapshot = resolved.snapshot
+    assert snapshot.state == OperationState.RETRY_PENDING and snapshot.revision == 2
+    (attempt,) = snapshot.attempts
+    assert (attempt.attempt_id, attempt.state, attempt.reason) == (
+        FIRST,
+        AttemptState.FAILED,
+        "interrupted attempt reconciled",
+    )
+    assert resolved.execution.status == EpochStatus.RELEASED
+    assert resolved.execution.generation == reconciler.execution.generation == 2
+    receipt = resolved.last_state_change
+    assert receipt is not None and (receipt.action, receipt.attempt_id) == ("outcome", FIRST)
+    # A fresh attempt can now execute; history keeps the reconciled attempt.
+    fresh = await activate(
+        repository, expected_revision=2, expected_generation=2, attempt_id=SECOND, at=T3
+    )
+    assert [a.attempt_id for a in fresh.snapshot.attempts] == [FIRST, SECOND]
+    assert fresh.execution.mode == EpochMode.EXECUTE and fresh.execution.generation == 3
+
+
+@pytest.mark.asyncio
+async def test_resolution_requires_reconciliation_ownership(repositories: Any) -> None:
+    repository, _ = repositories
+    await active(repository)
+    with pytest.raises(ReconciliationRequired):
+        await resolve(repository, owner_id="worker-a", generation=1)
+    assert (await repository.inspect(OP)).snapshot.state == OperationState.RUNNING
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "field,value,error",
+    [
+        ("owner_id", "worker-a", OwnershipConflict),
+        ("attempt_id", SECOND, AttemptConflict),
+        ("generation", 1, ObsoleteFencingToken),
+        ("expected_revision", 0, RevisionConflict),
+        ("reason", " ", InvalidManagedRequest),
+    ],
+)
+async def test_resolution_rejects_wrong_credentials_without_mutation(
+    repositories: Any, field: str, value: Any, error: type[Exception]
+) -> None:
+    repository, other = repositories
+    reconciler = await interrupted(repository, other)
+    with pytest.raises(error):
+        await resolve(other, **{field: value})
+    assert await other.inspect(OP) == reconciler
+
+
+@pytest.mark.asyncio
+async def test_superseded_reconciler_and_newer_attempts_cannot_be_overwritten(
+    repositories: Any,
+) -> None:
+    repository, other = repositories
+    await interrupted(repository, other)
+    await release(other, owner_id="worker-b", generation=2)
+    await takeover(other, expected_generation=2, owner_id="worker-c")
+    with pytest.raises(ObsoleteFencingToken):
+        await resolve(other)  # worker-b's generation was superseded
+    await resolve(other, owner_id="worker-c", generation=3)
+    await activate(repository, expected_revision=2, expected_generation=3, attempt_id=SECOND, at=T3)
+    newer = await repository.inspect(OP)
+    for stale in ({"owner_id": "worker-c", "generation": 3}, {"expected_revision": 2}):
+        with pytest.raises(
+            (ObsoleteFencingToken, AttemptConflict, OwnershipConflict, RevisionConflict)
+        ):
+            await resolve(other, **stale)
+    assert await repository.inspect(OP) == newer
+
+
+@pytest.mark.asyncio
+async def test_concurrent_resolutions_apply_once(repositories: Any) -> None:
+    repository, other = repositories
+    await interrupted(repository, other)
+    results = await asyncio.gather(resolve(other), resolve(repository), return_exceptions=True)
+    assert sum(not isinstance(r, BaseException) for r in results) == 1
+    assert (await repository.inspect(OP)).snapshot.revision == 2

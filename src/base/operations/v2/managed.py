@@ -41,6 +41,10 @@ class ReconciliationOnly(ValueError):
     """Reconciliation ownership does not authorize execution or outcome reports."""
 
 
+class ReconciliationRequired(ValueError):
+    """Resolving an interrupted attempt requires reconciliation (takeover) ownership."""
+
+
 class AmbiguousManagedWrite(RuntimeError):
     """A database failure leaves acceptance uncertain; inspect, never blindly replay."""
 
@@ -267,4 +271,17 @@ class ManagedOperationRepository(Protocol):
         attempt_id: UUID,
         owner_id: str,
         lease_ms: int,
+    ) -> ManagedOperation: ...
+
+    async def resolve_reconciled(
+        self,
+        operation_id: UUID,
+        *,
+        expected_revision: int,
+        attempt_id: UUID,
+        owner_id: str,
+        generation: int,
+        reason: str,
+        at: datetime,
+        command_id: UUID,
     ) -> ManagedOperation: ...

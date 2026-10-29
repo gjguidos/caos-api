@@ -68,6 +68,40 @@ class StoreCreateRequest(BaseModel):
     idempotency_key: Annotated[str, Field(min_length=1, max_length=200, pattern=r"^\S(.*\S)?$")]
 
 
+PolicyId = Annotated[str, Field(min_length=1, pattern=r"^\S+$")]
+
+
+class ProvisionedIdentity(BaseModel):
+    """One policy-pinned identity, loaded only from the reviewed server policy file.
+
+    It authorizes exactly one principal, acting for exactly one subject in one
+    tenant, to create one agent with a fixed ID. The result is an ordinary tenant
+    resource; system ownership is not expressible here.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    slot: Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]*$", max_length=64)]
+    resource_type: StoreResourceType
+    agent_id: PolicyId
+    tenant_id: PolicyId
+    principal_id: PolicyId
+    subject_id: PolicyId
+    name: Annotated[str, Field(min_length=1)]
+    type: PolicyId
+    runtime_version: Literal["v1", "v2"]
+
+
+class StoreProvisionedCreateRequest(BaseModel):
+    """Caller envelope: a slot name only. Identity, tenant and owner come from policy."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    resource_type: StoreResourceType
+    slot: Annotated[str, Field(min_length=1, max_length=64)]
+    payload: dict[str, Any]
+
+
 class StoreCreateResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -84,12 +118,14 @@ class StoreWriteContext:
     ``ownership`` is decided by the authority, never the payload. Capability calls
     always write tenant resources; ``system`` is reserved for a future, explicitly
     reviewed bootstrap authority. ``verify`` rechecks live authority immediately
-    before the write and must raise when it no longer holds.
+    before the write and must raise when it no longer holds. ``provisioned`` is set
+    only by the policy-pinned capability after matching the permit to the entry.
     """
 
     provenance: AuthorizationProvenance
     verify: Callable[[], Awaitable[None]]
     ownership: Literal["tenant", "system"] = "tenant"
+    provisioned: ProvisionedIdentity | None = None
 
 
 class ResourceStore(Protocol):

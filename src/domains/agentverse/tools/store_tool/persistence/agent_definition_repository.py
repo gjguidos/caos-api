@@ -1,8 +1,8 @@
 """Insert-only, idempotent agent definition persistence in the existing ``coll_agents``.
 
 One ``insert_one`` guarded by a unique partial index on the store idempotency scope is
-the atomic create-if-absent gate; there is no read-then-write, upsert, update or replace,
-so an existing agent can never be modified here. Legacy and V1 documents carry no scope
+the atomic create-if-absent gate; there is no upsert, update or replace, so an existing
+agent can never be modified here. The only pre-write read is the policy-pinned ID check. Legacy and V1 documents carry no scope
 and are therefore unconstrained by the index. Requires native MongoDB partial indexes;
 Cosmos Mongo API compatibility is unverified and fails closed at index creation.
 """
@@ -52,6 +52,14 @@ class AgentDefinitionRepository:
         except PyMongoError as exc:
             raise StoreUnavailable("Agent store idempotency index is unavailable") from exc
         self._indexed = True
+
+    async def find_by_id(self, agent_id: str) -> dict[str, Any] | None:
+        """Read-only identity lookup used before writing a policy-pinned agent ID."""
+        collection = await self.repository.get_collection(self.collection_name)
+        try:
+            return await collection.find_one({"id": agent_id}, {"_id": 0})
+        except PyMongoError as exc:
+            raise StoreUnavailable("Agent store is unavailable") from exc
 
     async def insert_once(self, document: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         """Insert, or return the document already holding this scope: ``(doc, created)``.

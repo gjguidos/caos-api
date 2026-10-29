@@ -5,6 +5,18 @@
       "agent_id": "00000000-0000-4000-8000-000000000002",
       "owner_user_id": "00000000-0000-4000-8000-000000000001",
       "enabled": true
+    },
+    {
+      "tenant_id": "caos-local",
+      "agent_id": "00000000-0000-4000-8000-000000000003",
+      "owner_user_id": "00000000-0000-4000-8000-000000000001",
+      "enabled": true
+    },
+    {
+      "tenant_id": "caos-local",
+      "agent_id": "00000000-0000-4000-8000-000000000004",
+      "owner_user_id": "00000000-0000-4000-8000-000000000001",
+      "enabled": true
     }
   ],
   "grants": [
@@ -15,7 +27,36 @@
         "chat.context",
         "chat.response"
       ]
+    },
+    {
+      "tenant_id": "caos-local",
+      "agent_id": "00000000-0000-4000-8000-000000000003",
+      "invoke": [
+        "data.validation",
+        "store.create.provisioned"
+      ]
+    },
+    {
+      "tenant_id": "caos-local",
+      "agent_id": "00000000-0000-4000-8000-000000000004",
+      "invoke": [
+        "chat.context",
+        "chat.response"
+      ]
     }
   ],
-  "trusted_lines": []
+  "trusted_lines": [],
+  "provisioned": [
+    {
+      "slot": "enki",
+      "resource_type": "agent",
+      "agent_id": "00000000-0000-4000-8000-000000000004",
+      "tenant_id": "caos-local",
+      "principal_id": "00000000-0000-4000-8000-000000000003",
+      "subject_id": "00000000-0000-4000-8000-000000000001",
+      "name": "Enki",
+      "type": "chat",
+      "runtime_version": "v2"
+    }
+  ]
 }

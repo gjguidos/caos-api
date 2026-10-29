@@ -128,7 +128,7 @@ Examples:
 - `context.delta.build`
 - `prompt.build`
 - `llm.generate`
-- `data.validation.deterministic`
+- `data.validation`
 
 Validate signals using the same addressing contract as SynapticRegistry.
 

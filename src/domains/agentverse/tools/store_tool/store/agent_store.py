@@ -19,6 +19,7 @@ from src.base.operations.v2.admission import sha256_hex
 from src.domains.agentverse.entities.agent import Agent
 from src.domains.agentverse.tools.store_tool.models import (
     InvalidStorePayload,
+    StoreConflict,
     StoreCreateResult,
     StoreIdempotencyConflict,
     StoreOwnershipViolation,
@@ -36,6 +37,8 @@ class AgentDefinitionPersistence(Protocol):
     async def ensure_indexes(self) -> None: ...
 
     async def insert_once(self, document: dict[str, Any]) -> tuple[dict[str, Any], bool]: ...
+
+    async def find_by_id(self, agent_id: str) -> dict[str, Any] | None: ...
 
 
 def idempotency_scope(context: StoreWriteContext, key: str) -> str:
@@ -73,7 +76,9 @@ class AgentDefinitionStore:
             # No reviewed system bootstrap authority exists yet: fail closed.
             raise StoreOwnershipViolation("System-owned agent creation is not enabled")
         scope = idempotency_scope(context, idempotency_key)
-        agent = self._definition(payload, context, agent_id=str(UUID(scope[:32])))
+        provisioned = context.provisioned
+        agent_id = provisioned.agent_id if provisioned else str(UUID(scope[:32]))
+        agent = self._definition(payload, context, agent_id=agent_id)
         definition = agent.model_dump(mode="json")
         digest = sha256_hex({"resource_type": "agent", "definition": definition})
         now = self._clock()
@@ -94,6 +99,15 @@ class AgentDefinitionStore:
                 "stored_at": now,
             },
         }
+        if provisioned is not None:
+            # A pinned ID is not scope-derived and coll_agents has no unique ``id``
+            # index: refuse an identity already held outside this scope.
+            existing = await self.persistence.find_by_id(agent_id)
+            if (
+                existing is not None
+                and (existing.get("store") or {}).get("idempotency_scope") != scope
+            ):
+                raise StoreConflict("Agent identity already exists")
         # Revalidate live authority at the write boundary (revocation/policy change).
         await context.verify()
         stored, created = await self.persistence.insert_once(document)
@@ -128,6 +142,21 @@ class AgentDefinitionStore:
         for field in _SERVER_FIELDS:
             if field in payload and payload[field] != derived[field]:
                 raise StoreOwnershipViolation(f"Agent {field} is managed by the server")
+        pinned = context.provisioned
+        if pinned is not None:
+            if (pinned.tenant_id, pinned.subject_id) != (
+                provenance.tenant_id,
+                provenance.subject_id,
+            ):
+                raise StoreOwnershipViolation("Provisioned identity does not match authority")
+            if (payload.get("name"), payload.get("type"), payload["runtime_version"]) != (
+                pinned.name,
+                pinned.type,
+                pinned.runtime_version,
+            ):
+                raise InvalidStorePayload(
+                    "Agent definition does not match its provisioned identity"
+                )
         try:
             return Agent.model_validate({**payload, **derived})
         except ValidationError as exc:

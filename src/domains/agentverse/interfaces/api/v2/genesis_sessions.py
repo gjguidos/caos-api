@@ -104,19 +104,27 @@ async def provision_local(request: Request) -> dict[str, str]:
             claims.get("oid", claims.get("sub")),
         ) != (TENANT, OWNER, OWNER):
             raise EventPermissionError("Local identity denied")
-        approval = av.genesis_approvals().get((TENANT, ADAM))
-        definition = await av.db_service().find_by_id(ADAM)
-        if (
-            not approval
-            or not approval.enabled
-            or approval.owner_user_id != OWNER
-            or not definition
-        ):
+        # Membership is exactly the enabled server approvals owned by the local operator.
+        allowed = frozenset(
+            agent
+            for (tenant, agent), approval in av.genesis_approvals().items()
+            if tenant == TENANT and approval.enabled and approval.owner_user_id == OWNER
+        )
+        if ADAM not in allowed:
             raise EventPermissionError("Local membership denied")
-        if definition.get("creator") != OWNER or definition.get("tenant_id") != TENANT:
-            raise EventPermissionError("Local ownership denied")
+        definitions = av.db_service()
+        for agent in sorted(allowed):
+            definition = await definitions.find_by_id(agent)
+            if definition is None:
+                # Adam is seeded at startup. A pinned identity (Enki) may not exist
+                # yet; activation still requires its persisted, matching definition.
+                if agent == ADAM:
+                    raise EventPermissionError("Local membership denied")
+                continue
+            if definition.get("creator") != OWNER or definition.get("tenant_id") != TENANT:
+                raise EventPermissionError("Local ownership denied")
         sid = await _authority(request).provision(
-            token, tenant_id=TENANT, user_id=OWNER, allowed_agent_ids=frozenset({ADAM})
+            token, tenant_id=TENANT, user_id=OWNER, allowed_agent_ids=allowed
         )
         return {"session_id": sid, "tenant_id": TENANT}
     except EventPermissionError as exc:

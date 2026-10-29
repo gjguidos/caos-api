@@ -31,9 +31,10 @@ from src.base.operations.v2.managed import (
     InvalidManagedRequest,
     ManagedOperation,
     ReconciliationOnly,
+    ReconciliationRequired,
     StateChangeReceipt,
 )
-from src.base.operations.v2.models import OperationRecord, OperationState
+from src.base.operations.v2.models import AttemptState, OperationRecord, OperationState
 from src.base.operations.v2.mongo_repository import COLLECTION_NAME, snapshot_from_document
 from src.base.operations.v2.ownership import (
     MAX_FENCING_TOKEN,
@@ -55,7 +56,7 @@ from src.base.operations.v2.repository import (
     validate_snapshot,
     validate_successor,
 )
-from src.base.operations.v2.transitions import InvalidTransition, start_attempt
+from src.base.operations.v2.transitions import InvalidTransition, finish_attempt, start_attempt
 from src.base.repositories.mongodb_repository import MongoDBRepository
 
 SCHEMA_VERSION = 2
@@ -584,4 +585,80 @@ class MongoManagedOperationRepository:
         )
         return await self._observed_grant(
             operation_id, attempt_id, owner_id, expected_generation + 1
+        )
+
+    async def resolve_reconciled(
+        self,
+        operation_id: UUID,
+        *,
+        expected_revision: int,
+        attempt_id: UUID,
+        owner_id: str,
+        generation: int,
+        reason: str,
+        at: datetime,
+        command_id: UUID,
+    ) -> ManagedOperation:
+        """Resolve an interrupted attempt that this caller took over for reconciliation.
+
+        The outcome is fixed, not asserted by the caller: the attempt finishes
+        ``failed`` with retry intent (``retry_pending``) and ownership is released, so
+        a fresh attempt can re-execute idempotent work. It never records success,
+        never starts an attempt and cannot touch a newer attempt: the same live
+        owner/generation/attempt/revision fences as ``commit_outcome`` apply, plus
+        reconcile mode and a running snapshot, all inside one conditional update.
+        """
+        _key(operation_id, attempt_id, owner_id, generation)
+        _expected(expected_revision, generation)
+        _command(command_id)
+        if not isinstance(reason, str) or not reason.strip():
+            raise InvalidManagedRequest("Reconciliation requires a nonblank reason")
+        previous, now = await self._read(operation_id)
+        self._live(previous, now, attempt_id, owner_id, generation)
+        if previous.execution.mode != EpochMode.RECONCILE:
+            raise ReconciliationRequired(operation_id)
+        self._versions(previous, expected_revision, generation)
+        if previous.snapshot.state != OperationState.RUNNING:
+            # Cancellation intent has its own semantics; never convert it to a retry.
+            raise InvalidTransition("Only a running interrupted attempt can be reconciled")
+        following = finish_attempt(
+            previous.snapshot,
+            attempt_id=attempt_id,
+            outcome=AttemptState.FAILED,
+            at=at,
+            reason=reason,
+            retry=True,
+        )
+        validate_successor(previous.snapshot, following)
+        predicate = self._live_predicate(operation_id, attempt_id, owner_id, generation)
+        predicate.update(
+            {
+                "snapshot.revision": expected_revision,
+                "snapshot.state": OperationState.RUNNING.value,
+                "execution.mode": EpochMode.RECONCILE.value,
+            }
+        )
+        receipt = self._receipt(
+            previous,
+            following,
+            command_id,
+            "outcome",
+            generation,
+            owner_id=owner_id,
+            resolution="reconciled",
+        )
+        return await self._write(
+            operation_id,
+            predicate,
+            {
+                "snapshot": {"$literal": following.model_dump(mode="json")},
+                "execution.status": EpochStatus.RELEASED.value,
+                "execution.updated_at": "$$NOW",
+                "execution.released_at": "$$NOW",
+                "last_state_change": {"$literal": receipt},
+            },
+            generation=generation,
+            revision=expected_revision,
+            command_id=command_id,
+            live_key=(attempt_id, owner_id),
         )

@@ -10,6 +10,7 @@ from src.domains.agentverse.agents.lifecycle.agent_principal_resolver import (
     RevocableAgentSessionAuthority,
 )
 from src.domains.agentverse.ncsc.authorization import SynapticAuthorization
+from src.domains.agentverse.tools.store_tool.models import ProvisionedIdentity
 
 
 @dataclass(frozen=True)
@@ -20,3 +21,5 @@ class GenesisSecurityBindings:
     sessions: RevocableAgentSessionAuthority
     authorization: SynapticAuthorization
     approvals: Mapping[tuple[str, str], AgentActivationApproval] = field(default_factory=dict)
+    # Policy-pinned identities for store.create.provisioned, keyed by slot.
+    provisions: Mapping[str, ProvisionedIdentity] = field(default_factory=dict)

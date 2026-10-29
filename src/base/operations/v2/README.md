@@ -431,8 +431,17 @@ grants no UTU permission.
 - `takeover(id, expected_revision, expected_generation, attempt_id, owner_id, lease_ms)`:
   acquire expired/released **unresolved** work with a new generation in reconcile mode;
   preserve the operation revision, attempt and receipt. It cannot start a new attempt or
-  commit execution outcomes. Reconciliation can renew/release its own lease only in this
-  slice; verified resolution is deferred to OPS2-04C.
+  commit execution outcomes. Reconciliation can renew/release its own lease, and resolve
+  the attempt with `resolve_reconciled` (below).
+- `resolve_reconciled(id, expected_revision, attempt_id, owner_id, generation, reason, at,
+  command_id)` (G1, uncommitted): only for a live **reconcile-mode** owner of a `running`
+  snapshot. Atomically finishes the interrupted attempt `failed` with retry intent
+  (`retry_pending`) and releases ownership; the outcome is fixed, never caller-asserted
+  success. Same predicates as an outcome commit (owner, generation, epoch and latest
+  attempt, revision, unexpired lease, `$$NOW` ordering) plus `mode=reconcile` and
+  `state=running`, in one `find_one_and_update`; a newer attempt or superseded reconciler
+  never matches. Cancellation intent is not converted. Typed failure for an execute-mode
+  caller: `ReconciliationRequired`.
 - `inspect(id)`: restore authoritative snapshot and epoch, not a promise of future validity.
 
 The separate singleton `Container.operations.managed_operation_repository_v2` reuses

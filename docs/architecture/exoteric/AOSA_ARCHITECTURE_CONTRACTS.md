@@ -135,7 +135,7 @@ The V1 `UniversalOrchestrator` (fixed analyze → plan → task → refine → e
 
 ## 4. Validation Contract
 
-**Proposed.** `data.validation` is not implemented. This section records the intended deterministic architecture so implementations converge on it.
+**Implemented (agent resource, uncommitted).** `data.validation@1.0.0` (provider `system.validation`, `agentverse/tools/validation_tool/`; tests `agentverse/tests/tools/test_data_validation_tool.py`) is synaptic-only, read-only and registered at Genesis startup only when the reviewed policy grants it or has a trusted line to it. The requester is the CPBX-issued permit subject. Points 1–5 below hold for `resource_type="agent"`; point 6 is unchanged (the Store Tool does not call it).
 
 1. **Persisted target:** the existing `Agent` model is the persisted definition. Validation produces a normalized `Agent`-compatible definition; it never writes.
 2. **Strict input contract:** agent creation input is validated by a strict (`extra="forbid"`) contract that excludes server-owned fields (`id`, `ownership`, `tenant_id`, `creator`, `exposure`, `runtime_version`, seed provenance). `AgentRequest` (`extra="allow"`) is not that contract.
@@ -155,8 +155,10 @@ The V1 `UniversalOrchestrator` (fixed analyze → plan → task → refine → e
 | **UTU** (`agentverse/security/utu.py`) | Resource read/discover decisions, revocable execution permits, session binding, lifecycle authorization, policy install (CAS) and revocation; delegates grant evaluation to `SynapticAuthorization` | Routing, execution, persistence |
 | **NCSC / CPBX** (`agentverse/ncsc/`) | Resolve exact bindings, enforce supplied policy (root grant + trusted lines), provider target, lineage, execution gate and permit watch | Cognitive recipes, workflow orchestration, deciding policy |
 | **Enlil** (OPS V2, `src/base/operations/v2/`) | **Partial:** durable admission, managed fencing and bounded discovery (`operations.dispatch.discover`, provider `system.enlil`, no production caller yet) | Executing admitted work, minting authority (workers/recovery are proposed, OPS2-04C.2+) |
+| **Seshat** (`agentverse/audit/`, `coll_logs`; uncommitted) | Cognitive Audit and Provenance Service: append-only, tenant-isolated, idempotent audit records (`CAOSLogRecord` v1) attributed only from UTU permit provenance; event-specific metadata allowlists; trusted in-process service (Genesis is the first producer) | Authorization, grants, reading for agents/clients (no API), execution, atomicity with the audited effect |
+| **Genesis provisioner** (`agentverse/agents/genesis/`; uncommitted) | Coordinates `data.validation` → `AgentComposer` → `store.create.provisioned` through CPBX with the Genesis principal's client, under one OPS V2 managed operation, recording each confirmed outcome with Seshat; resolves its own interrupted attempts via OPS V2 takeover + `resolve_reconciled` and re-executes idempotently | Constructing permits, adding grants, activation (Khepri), asserting outcomes it did not observe |
 | **Khepri** (`agentverse/agents/lifecycle/khepri.py`) | Agent activation through `AgentLifecycleService` (Anubis deactivates) | Granting capabilities, creating definitions |
-| **Store Tool** (`store.create`) | Idempotent, insert-only persistence of approved resources (currently `agent`) with provenance | Validation of references, approvals, activation |
+| **Store Tool** (`store.create`, `store.create.provisioned`) | Idempotent, insert-only persistence of approved resources (currently `agent`) with provenance; `store.create.provisioned` (uncommitted) creates only tenant-owned identities pinned in the reviewed Genesis policy (`provisioned` slots: fixed ID, principal, subject, tenant) and confers no general `store.create` | Validation of references, approvals, activation, system ownership (still reserved) |
 
 ### 5.2 Distinct decisions — never collapse them
 
@@ -170,6 +172,29 @@ The V1 `UniversalOrchestrator` (fixed analyze → plan → task → refine → e
 | **Lifecycle activation** | Approval + installed policy version + `Khepri.awaken` | No (activation is not a grant) |
 
 Signed events, event names, agent IDs or names, symbolic roles and LLM output are never authorization. Capability authorization is not blanket authorization for every resource a payload names; resource checks remain path-specific.
+
+### 5.3 Audit — Seshat's operation-centric pattern
+
+Seshat is the Cognitive Audit and Provenance Service. Its records are **evidence**, never authorization, and its producer contract (`AuditSink` in `agentverse/audit/service.py`) hides storage so ingestion can change without changing producers.
+
+**Implemented (L1 + L2, uncommitted):**
+
+- **What is audited.** Only authoritative lifecycle transitions, mandatory governance decisions, consequential effects and terminal outcomes, written by the trusted coordinator that owns the operation. CPBX synapses, child contexts, worker messages and tool invocations are **not** persisted automatically. Genesis writes at most one record per audited step per operation (three on success):
+
+  | Event | Classification |
+  | --- | --- |
+  | `genesis.validation.completed` | Governance decision (definition admissible for the requester) |
+  | `genesis.composition.completed` | Governance decision (trusted V2 policy: runtime version, backend selection) |
+  | `genesis.store.completed` | Consequential effect + terminal success evidence |
+  | `genesis.store.failed` | Consequential effect outcome (rejected/failed) |
+
+- **Mutable state lives in OPS V2.** Progress, attempts, leases and retry intent are the managed operation (`operations_v2`); there is no shared mutable audit document.
+- **Correlation without per-event documents.** `correlation_id` is the operation ID (also passed to every CPBX request); audit causation chains operation → validation → composition → store. Internal events are correlated, not individually stored.
+- **Small, immutable, idempotent, independently insertable.** One document per fact, identity on the built-in `_id`, no updates; every field is bounded and the whole record is capped at 16 KiB (`MAX_RECORD_BYTES`).
+- **Stable identities.** A successful logical step has one ID per operation (an idempotent retry reuses it); a rejection/failure has one ID per attempt (repeated failures stay distinct).
+- **Mandatory audit is synchronous and observable.** `append` returns only after durable acceptance or raises a typed, retryable error; a producer never reports success without its evidence (Genesis leaves the operation retry-pending).
+
+**Deferred until required (not implemented):** distributed/asynchronous ingestion (any such path must preserve durable acknowledgement for mandatory audit — no fire-and-forget), batching, partitioning/sharding of `coll_logs`, retention, and protected artifact storage with versioned manifests for large or high-cardinality evidence (records would reference artifacts by digest, never embed them).
 
 ---
 

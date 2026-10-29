@@ -24,6 +24,8 @@ from src.domains.agentverse.agents.lifecycle.ncsc_connector import (
 )
 from src.domains.agentverse.agents.lifecycle.service import AgentLifecycleService
 from src.domains.agentverse.agents.orchestrator.universal import UniversalOrchestrator
+from src.domains.agentverse.audit.repository import MongoLogRepository
+from src.domains.agentverse.audit.service import CAOSLogService
 from src.domains.agentverse.dependencies.genesis_security import GenesisSecurityBindings
 from src.domains.agentverse.ncsc.authorization import SynapticAuthorization
 from src.domains.agentverse.ncsc.cpbx import SynapticExchange
@@ -73,6 +75,9 @@ from src.domains.agentverse.services.workflow_service import (
 from src.domains.agentverse.tools.store_tool.dependencies.di_container import (
     StoreToolContainer,
 )
+from src.domains.agentverse.tools.validation_tool.dependencies.di_container import (
+    ValidationToolContainer,
+)
 from src.domains.agentverse.tools.web_crawler_tool.dependencies.di_container import (
     WebCrawlerContainer,
 )
@@ -99,6 +104,7 @@ class AgentverseContainer(containers.DeclarativeContainer):
     # authority before resolving Genesis services; V1 remains independent.
     genesis_sessions = providers.Singleton(UnboundAgentSessionAuthority)
     genesis_approvals = providers.Object({})
+    genesis_provisions = providers.Object({})
     synaptic_authorization = providers.Singleton(SynapticAuthorization)
 
     # ------------------------------------------------------------------
@@ -140,6 +146,17 @@ class AgentverseContainer(containers.DeclarativeContainer):
         mongodb_repository=mongodb_repository,
     )
 
+    # Trusted, in-process audit log (coll_logs); not exposed to agents or clients.
+    caos_log_repository = providers.Singleton(
+        MongoLogRepository,
+        mongodb_repository=mongodb_repository,
+    )
+
+    caos_log_service = providers.Singleton(
+        CAOSLogService,
+        repository=caos_log_repository,
+    )
+
     orchestrator = providers.Singleton(
         UniversalOrchestrator,
     )
@@ -166,6 +183,13 @@ class AgentverseContainer(containers.DeclarativeContainer):
     workflow_service = providers.Factory(
         WorkflowService,
         db_service=db_service,
+    )
+
+    validation = providers.Container(
+        ValidationToolContainer,
+        registries=providers.Object(registries),
+        workflow_service=workflow_service,
+        utu_authority=utu_authority,
     )
 
     # ------------------------------------------------------------------
@@ -345,6 +369,7 @@ def extend_container(
             raise ValueError("Use Genesis security bindings or custom exchange/resolver bindings")
         av.genesis_sessions.override(providers.Object(genesis_security.sessions))
         av.genesis_approvals.override(providers.Object(dict(genesis_security.approvals)))
+        av.genesis_provisions.override(providers.Object(dict(genesis_security.provisions)))
         av.synaptic_authorization.override(providers.Object(genesis_security.authorization))
 
     # Keep provider bindings lazy. In particular, never call an exchange or
@@ -430,6 +455,7 @@ def extend_container(
     ns.agent_presence_store = av.agent_presence_store
     ns.genesis_sessions = av.genesis_sessions
     ns.genesis_approvals = av.genesis_approvals
+    ns.genesis_provisions = av.genesis_provisions
     ns.synaptic_authorization = av.synaptic_authorization
     ns.synaptic_exchange = av.synaptic_exchange
     ns.utu_authority = av.utu_authority
@@ -447,6 +473,10 @@ def extend_container(
     ns.mcp_tool_source = av.mcp_tool_source
     ns.file_service = av.file_service
     ns.web_crawler = av.web_crawler
+    # Governed capability containers registered by Genesis bootstrap only when the
+    # reviewed policy grants them; exposing the providers grants nothing.
+    ns.store = av.store
+    ns.validation = av.validation
 
     # ------------------------------------------------------------------
     # Backwards-compatible aliases
