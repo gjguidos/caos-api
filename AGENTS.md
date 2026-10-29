@@ -12,6 +12,28 @@ CAOS is evolving toward an event-driven system in which agents, tools, workflows
 
 Read `README.md` for the platform vision. **Do not assume that every component described in the README has been implemented.**
 
+## Start here
+
+This file is the canonical project instruction entry point for every coding agent. OpenCode reads it directly; `CLAUDE.md` imports it for Claude Code. Keep both entry points short and link to architecture documents rather than copying them.
+
+Initialize each architectural or implementation session with `/caos-init [next task]` (Claude Code: `.claude/commands/caos-init.md`; OpenCode: `.opencode/commands/caos-init.md`). Both run the same read-only procedure, `.agents/skills/caos-init/SKILL.md`.
+
+Canonical architecture documents:
+
+- `docs/architecture/exoteric/AOSA_ENGINEERING_PRINCIPLES.md` — the 16 principles and review checklist.
+- `docs/architecture/exoteric/AOSA_ARCHITECTURE_CONTRACTS.md` — Agent, Tool/Action, Workflow, Validation and Governance contracts, labelled implemented / partial / proposed.
+- `docs/architecture/IMPLEMENTATION_STATUS.md` — current milestone, next work and known doc/source drift.
+- `docs/architecture/README.md` — evidence index of source and test entry points.
+
+Standing conventions:
+
+- Follow all 16 AOSA Engineering Principles, including Architectural Self-Application (CAOS uses CAOS) and Cognitive OS Recursivity.
+- Reuse established CAOS tools, registries and capability contracts; preserve UTU, NCSC/CPBX, Enlil, WFT and Khepri responsibility boundaries.
+- Registration, discovery, exposure and attachment never authorize; invocation needs a UTU permit and a CPBX grant or trusted line.
+- Prefer small, testable vertical slices; design for scalability without premature optimization; preserve V1 compatibility unless instructed otherwise.
+- Use the Docker environment; do not introduce a virtual environment.
+- Do not commit, push or change branches without approval. Never persist permits, credentials, JWTs or secrets.
+
 ## Technical environment
 
 - Python 3.11+
@@ -207,7 +229,7 @@ When working in this repository:
 6. Never bypass authorization or governance mechanisms to simplify an implementation.
 7. Report potential regressions, unverified assumptions, and tests not executed.
 
-For codebase investigation, use the CAOS research agent.
+For codebase investigation, use the CAOS research agent (`.agents/research.md`; neither tool registers it automatically, so follow it as a read-only research guide).
 
 For release preparation, verification, or promotion, use the CAOS release skill.
 
@@ -236,6 +258,9 @@ CAOS has complementary **Exoteric** (`docs/architecture/exoteric/README.md`) ent
 - `docs/RELEASE_WORKFLOW.md` — release process
 - `.github/workflows/release.yml` — release automation
 - `docs/architecture/README.md` — architecture knowledge index and evidence entry points
+- `docs/architecture/exoteric/AOSA_ARCHITECTURE_CONTRACTS.md` — canonical architecture contracts
+- `docs/architecture/IMPLEMENTATION_STATUS.md` — milestone snapshot and drift register
+- `.agents/skills/caos-init/SKILL.md` — session initialization procedure
 - `docs/architecture/decisions/ADR-0001-thoth-privileged-knowledge.md` — proposed THOTH boundaries
 
 Always inspect these files before relying on assumptions about their current implementation.

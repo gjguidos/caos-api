@@ -32,7 +32,7 @@ Related systems:
 
 Use the `aosa-registry` skill when modifying registry behavior.
 
-Use the `ncsc-pbx` skill when modifying synaptic routing or authorization.
+Use the `ncsc-cpbx` skill when modifying synaptic routing or authorization.
 
 ## Architectural Principles
 

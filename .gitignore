@@ -17,9 +17,9 @@ htmlcov
 .github/copilot-instructions.md
 .github/instructions/
 
-# Claude & Codex
-.claude
-CLAUDE.md
+# Claude & Codex (shared project commands and CLAUDE.md are versioned; local settings are not)
+.claude/*
+!.claude/commands/
 .codex
 plans/*
 .DS_Store

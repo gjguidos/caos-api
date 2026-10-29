@@ -1,5 +1,5 @@
 ---
-name: ncsc-pbx
+name: ncsc-cpbx
 description: Design, implement, review and test the NCSC Cognitive PBX, including SynapticExchange, authorized synaptic clients, synaptic invocation contracts, capability adapters, and AOSA cognitive tool integration.
 ---
 

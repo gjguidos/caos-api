@@ -6,7 +6,7 @@ See [ADR-0002](../decisions/ADR-0002-exoteric-esoteric-knowledge.md) for the doc
 
 ## AOSA and practical concepts
 
-Use [AOSA Engineering Principles](AOSA_ENGINEERING_PRINCIPLES.md) as the canonical design/review reference before architectural changes. It defines engineering direction and the `#weather` delivery priority without treating proposed runtimes or research as implemented behavior.
+Use [AOSA Engineering Principles](AOSA_ENGINEERING_PRINCIPLES.md) as the canonical design/review reference before architectural changes. Use [AOSA Architecture Contracts](AOSA_ARCHITECTURE_CONTRACTS.md) for the Agent, Tool/Action, Workflow, Validation and Governance contracts. It defines engineering direction and the `#weather` delivery priority without treating proposed runtimes or research as implemented behavior.
 
 **AOSA — Agent-Oriented System Architecture — is the architectural foundation; CAOS is the platform built around it.** Preserve explicit identity/authority, composition, shared execution contracts, domain ownership, dependency injection and bounded lifecycle behavior. Events coordinate services; tools and workflows need not use an LLM. Model-assisted results can be nondeterministic while authorization and lifecycle invariants remain explicit and testable.
 
