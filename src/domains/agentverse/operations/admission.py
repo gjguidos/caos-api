@@ -16,6 +16,7 @@ from src.base.operations.v2.admission import (
 )
 from src.domains.agentverse.ncsc.models import SynapticExecutionContext
 from src.domains.agentverse.registries.synaptic_registry import SynapticRegistry
+from src.domains.agentverse.security.revocation import ExecutionPermit
 from src.domains.agentverse.security.utu import AuthorizedAgentPrincipal, UTUAuthority
 
 
@@ -66,21 +67,26 @@ class UTUAdmissionAuthority:
             ),
             signal=signal,
         )
-        key = permit.key
-        return AuthorizationProvenance(
-            authority="utu",
-            tenant_id=key.tenant_id,
-            principal_id=key.agent_id,
-            subject_id=key.user_id,
-            policy_version=permit.versions[0].split(":")[-1],
-            evidence_digest=sha256_hex(
-                {
-                    "tenant": key.tenant_id,
-                    "user": key.user_id,
-                    "agent": key.agent_id,
-                    "session": key.session_id,
-                    "versions": list(permit.versions),
-                    "signal": signal,
-                }
-            ),
-        )
+        return permit_provenance(permit, signal)
+
+
+def permit_provenance(permit: ExecutionPermit, signal: str) -> AuthorizationProvenance:
+    """One-way evidence of an already verified permit; never a decision or a permit."""
+    key = permit.key
+    return AuthorizationProvenance(
+        authority="utu",
+        tenant_id=key.tenant_id,
+        principal_id=key.agent_id,
+        subject_id=key.user_id,
+        policy_version=permit.versions[0].split(":")[-1],
+        evidence_digest=sha256_hex(
+            {
+                "tenant": key.tenant_id,
+                "user": key.user_id,
+                "agent": key.agent_id,
+                "session": key.session_id,
+                "versions": list(permit.versions),
+                "signal": signal,
+            }
+        ),
+    )

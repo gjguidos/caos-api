@@ -70,6 +70,9 @@ from src.domains.agentverse.services.vectordb_service import (
 from src.domains.agentverse.services.workflow_service import (
     WorkflowService,
 )
+from src.domains.agentverse.tools.store_tool.dependencies.di_container import (
+    StoreToolContainer,
+)
 from src.domains.agentverse.tools.web_crawler_tool.dependencies.di_container import (
     WebCrawlerContainer,
 )
@@ -148,6 +151,12 @@ class AgentverseContainer(containers.DeclarativeContainer):
     web_crawler = providers.Container(
         WebCrawlerContainer,
         mongodb_repository=mongodb_repository,
+    )
+
+    store = providers.Container(
+        StoreToolContainer,
+        mongodb_repository=mongodb_repository,
+        utu_authority=utu_authority,
     )
 
     # ------------------------------------------------------------------

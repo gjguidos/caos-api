@@ -103,6 +103,14 @@ def configure_genesis_transport(app: FastAPI, bindings: GenesisSecurityBindings)
             synaptic_registry_instance.subscribe(SIGNAL, provider="cognitive.chat")(
                 responder.handle
             )
+        from src.domains.agentverse.tools.store_tool import register_store_create
+        from src.domains.agentverse.tools.store_tool.spec import STORE_CREATE_SIGNAL
+
+        policy = bindings.authorization
+        if any(STORE_CREATE_SIGNAL in grant.invoke for grant in policy._grants.values()) or any(
+            line.target == STORE_CREATE_SIGNAL for line in policy._trusted_lines
+        ):
+            register_store_create(synaptic_registry_instance, av.store().tool())
         if os.getenv("GENESIS_LOCAL_ENABLED") == "true":
             from src.domains.agentverse.dependencies.genesis_local import initialize_local
 
