@@ -1,8 +1,10 @@
-"""Local G1.4 authority handoff, not an orchestrator or principal impersonation.
+"""Genesis authority handoffs, not an orchestrator or principal impersonation.
 
-CPBX keeps JOSHUA's principal on entry. Only this trusted adapter may resolve the
-separately approved Genesis identity, for the same live session and user, using a
-server-pinned handoff. No permit or client is returned to the initiating agent.
+CPBX keeps the initiator's principal on entry (JOSHUA for Enki, G1.4; Enki for
+Thoth, G2.1). Only this trusted adapter may resolve the separately approved Genesis
+identity, for the same live session and user, using a server-pinned handoff. Each
+handoff slot has its own exact signal, so a grant for one creation contract never
+reaches another. No permit or client is returned to the initiating agent.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from src.base.events.v2.contracts import EventPermissionError
 from src.base.operations.v2.admission import sha256_hex
 from src.domains.agentverse.agents.genesis import GenesisProvisioner, genesis_operation_id
+from src.domains.agentverse.agents.genesis.activation import GenesisActivation
 from src.domains.agentverse.agents.genesis.models import (
     GenesisAuditError,
     GenesisOperationInProgress,
@@ -35,6 +38,11 @@ from src.domains.agentverse.tools.spec import SynapticCapabilitySpec, SynapticTo
 from src.domains.agentverse.tools.store_tool.models import ProvisionedIdentity
 
 SIGNAL = "genesis.enki.request"
+THOTH_SIGNAL = "genesis.thoth.request"
+# One exact initiation contract per pinned slot.
+SIGNALS = {"enki": SIGNAL, "thoth": THOTH_SIGNAL}
+# Executor-only capabilities an initiator must never hold itself.
+_EXECUTOR_SIGNALS = frozenset({"data.validation", "store.create", "store.create.provisioned"})
 VERSION = "1.0.0"
 PROVIDER = "system.genesis"
 INITIATION_EVENT = "genesis.initiation.authorized"
@@ -51,7 +59,10 @@ class GenesisHandoff(BaseModel):
     initiator_id: PolicyId
     executor_id: PolicyId
     agent_id: PolicyId
-    slot: Literal["enki"]
+    slot: Literal["enki", "thoth"]
+    # Creation never implies activation; only a reviewed opt-in reaches Khepri, which
+    # still resolves the new agent's own UTU authority in the requester's session.
+    activation: Literal["none", "requester_session"] = "none"
 
     @model_validator(mode="after")
     def distinct_identities(self) -> GenesisHandoff:
@@ -78,6 +89,7 @@ class GenesisInitiation:
         exchange: SynapticExchange,
         provisioner: GenesisProvisioner,
         log: AuditSink,
+        activation: GenesisActivation | None = None,
     ) -> None:
         self._handoffs = {(h.tenant_id, h.initiator_id, h.subject_id): h for h in handoffs}
         if len(self._handoffs) != len(handoffs):
@@ -96,21 +108,28 @@ class GenesisInitiation:
         self._exchange = exchange
         self._provisioner = provisioner
         self._log = log
+        if activation is None and any(h.activation != "none" for h in handoffs):
+            raise ValueError("A Genesis handoff that activates requires Khepri activation")
+        self._activation = activation
+
+    @property
+    def signals(self) -> tuple[str, ...]:
+        return tuple(sorted({SIGNALS[h.slot] for h in self._handoffs.values()}))
 
     async def handle(self, synapse: Synapse, client: AuthorizedSynapticClient) -> dict[str, Any]:
         body = EnkiInitiationRequest.model_validate(synapse.payload)
         permit = client.execution_permit if isinstance(client, AuthorizedSynapticClient) else None
         if not isinstance(permit, ExecutionPermit) or (
-            synapse.signal,
             synapse.target,
             synapse.tenant_id,
             synapse.source,
-        ) != (SIGNAL, PROVIDER, permit.key.tenant_id, permit.key.agent_id):
+        ) != (PROVIDER, permit.key.tenant_id, permit.key.agent_id):
             raise EventPermissionError("Genesis initiation requires its verified CPBX caller")
         key = permit.key
         handoff = self._handoffs.get((key.tenant_id, key.agent_id, key.user_id))
-        if handoff is None:
+        if handoff is None or synapse.signal != SIGNALS[handoff.slot]:
             raise EventPermissionError("Genesis handoff denied")
+        signal = synapse.signal
         # Re-read current approvals, definitions, membership and authority, even
         # for terminal replay. A once-issued permit is not a current approval.
         initiator = await self._authority.resolve_agent_principal(key)
@@ -120,13 +139,18 @@ class GenesisInitiation:
             context=SynapticExecutionContext(
                 principal_id=key.agent_id, tenant_id=key.tenant_id, permit=permit
             ),
-            signal=SIGNAL,
+            signal=signal,
         )
         executor = await self._authority.resolve_agent_principal(
             AgentInstanceKey(key.tenant_id, key.user_id, handoff.executor_id, key.session_id)
         )
-        if self._authority.grants_for(initiator).invoke != frozenset({SIGNAL}) or (
-            self._authority.grants_for(executor).invoke
+        # The initiator holds its own contract and never an executor capability or
+        # another slot's contract; the executor holds exactly its two capabilities.
+        initiator_grants = self._authority.grants_for(initiator).invoke
+        if (
+            signal not in initiator_grants
+            or initiator_grants & (_EXECUTOR_SIGNALS | (set(SIGNALS.values()) - {signal}))
+            or self._authority.grants_for(executor).invoke
             != frozenset({"data.validation", "store.create.provisioned"})
         ):
             raise EventPermissionError("Genesis handoff grants differ from the reviewed policy")
@@ -136,12 +160,18 @@ class GenesisInitiation:
             # success is not approval to recreate the now form-pinned identity.
             raise EventPermissionError("Genesis request differs from the current pinned definition")
         profile = (body.creation.get("role_name"), body.creation.get("personality_key"))
-        if pinned.type == "form" and profile != ("enki", "empty_eva"):
-            raise EventPermissionError("Genesis request differs from the reviewed Enki composition")
+        if pinned.type == "form" and None in (pinned.role_name, pinned.personality_key):
+            # A conversational Form is only creatable with a fully reviewed composition.
+            raise EventPermissionError("Genesis form slots require a pinned composition")
+        if any(
+            pin is not None and value != pin
+            for pin, value in zip((pinned.role_name, pinned.personality_key), profile, strict=True)
+        ):
+            raise EventPermissionError("Genesis request differs from the pinned composition")
         request = GenesisProvisionRequest(slot=handoff.slot, creation=body.creation)
         operation_id = genesis_operation_id(executor.permit, request)
         correlation = str(operation_id)
-        authorization = permit_provenance(permit, SIGNAL)
+        authorization = permit_provenance(permit, signal)
         # One fact per operation + verified initiating authorization, not per
         # synapse/message. Re-authentication creates a distinct authorization fact;
         # retrying the same authorization reuses its ID and canonical content.
@@ -154,7 +184,7 @@ class GenesisInitiation:
             event_type=INITIATION_EVENT,
             outcome="succeeded",
             subject={"resource_type": "agent", "resource_id": handoff.agent_id},
-            target={"signal": SIGNAL, "version": VERSION},
+            target={"signal": signal, "version": VERSION},
             correlation={
                 "operation_id": operation_id,
                 "correlation_id": correlation,
@@ -206,6 +236,25 @@ class GenesisInitiation:
         finally:
             execution_client.revoke()
             await execution_client.drain()
+        if handoff.activation == "requester_session" and response.get("status") == "provisioned":
+            # A separate authority: Khepri resolves the new agent's own UTU permit.
+            assert self._activation is not None
+            stored = next(
+                (
+                    r
+                    for r in await self._log.history(key.tenant_id, response["correlation_id"])
+                    if r.event_type == "genesis.store.completed"
+                ),
+                None,
+            )
+            if stored is None:
+                raise EventPermissionError("Genesis activation requires store evidence")
+            response["activation"] = await self._activation.activate(
+                requester=permit,
+                handoff=handoff,
+                correlation_id=response["correlation_id"],
+                causation_id=stored.event_id,
+            )
         # Never release a result to a revoked initiator, including direct adapter calls.
         await self._authority.resolve_agent_principal(key)
         await self._authority.resolve_agent_principal(executor.permit.key)
@@ -215,16 +264,25 @@ class GenesisInitiation:
 def register_genesis_initiation(
     registry: SynapticRegistry, capability: GenesisInitiation
 ) -> SynapticBinding:
-    return registry.register(
-        SIGNAL,
-        version=VERSION,
-        description="Initiate governed creation of the policy-pinned Enki identity",
-        metadata={
-            "access": "system",
-            "deterministic": True,
-            "synaptic": SynapticToolSpec(
-                capabilities=[SynapticCapabilitySpec(signal=SIGNAL, access="system")]
-            ).model_dump(),
-        },
-        component=SynapticBinding(SIGNAL, PROVIDER, capability.handle, VERSION),
-    )
+    """Register one exact initiation contract per configured handoff slot.
+
+    Registration grants nothing; each initiator still needs its own CPBX grant.
+    Returns the first binding (the Enki contract when configured).
+    """
+    bindings = [
+        registry.register(
+            signal,
+            version=VERSION,
+            description="Initiate governed creation of a policy-pinned Agent identity",
+            metadata={
+                "access": "system",
+                "deterministic": True,
+                "synaptic": SynapticToolSpec(
+                    capabilities=[SynapticCapabilitySpec(signal=signal, access="system")]
+                ).model_dump(),
+            },
+            component=SynapticBinding(signal, PROVIDER, capability.handle, VERSION),
+        )
+        for signal in capability.signals
+    ]
+    return next((b for b in bindings if b.signal == SIGNAL), bindings[0])

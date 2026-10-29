@@ -23,6 +23,10 @@ from redis.asyncio import Redis
 from src.base.config.config import settings
 from src.base.dependencies.di_container import Container
 from src.base.infrastructure.ai.client_factory import ClientFactory
+from src.base.infrastructure.db.mongoDB.isolation import (
+    disposable_database_name,
+    require_test_database,
+)
 from src.base.infrastructure.db.mongoDB.mongo_client import MongoDBClient
 from src.base.operations.v2.models import OperationRecord, OperationState
 from src.base.repositories.redis_impl import RedisRepositoryImpl
@@ -56,7 +60,11 @@ from src.domains.agentverse.dependencies.genesis_local import (
     OWNER,
     TENANT,
 )
-from src.domains.agentverse.personalities import empty_eva  # noqa: F401 - production registration
+from src.domains.agentverse.personalities import (  # noqa: F401 - production registration
+    empty_eva,
+)
+from src.domains.agentverse.personalities import enki as enki_soul  # noqa: F401
+from src.domains.agentverse.personalities import thoth as thoth_soul  # noqa: F401
 from src.domains.agentverse.registries.synaptic_registry import SynapticRegistry
 from src.domains.agentverse.runtime.instances_v2 import AgentInstanceKey
 from src.domains.agentverse.security.revocation import ExecutionPermit
@@ -90,7 +98,9 @@ async def world(monkeypatch):
     registry_instances.agent_registry_instance.bind_spec(form_agent_spec)(ChatAgent)
     registry_instances.role_registry_instance.register_role_spec(role_spec)
     registry_instances.role_registry_instance.register_role_spec(enki_role_spec)
-    mongo = MongoDBClient(settings.database.resolved_uri, "g1_boot_" + uuid4().hex)
+    mongo = MongoDBClient(
+        settings.database.resolved_uri, require_test_database(disposable_database_name("g1boot"))
+    )
     redis = Redis.from_url(url)
     session_keys = ["g1b:{" + uuid4().hex + "}" + suffix for suffix in (":records", ":due")]
     apps = []
@@ -178,7 +188,7 @@ async def test_empty_database_creates_exactly_one_sleeping_enki_with_bootstrap_p
         enki["runtime_version"],
         enki["tenant_id"],
         enki["creator"],
-    ) == ("form", "enki", "empty_eva", "v2", TENANT, OWNER)
+    ) == ("form", "enki", "enki", "v2", TENANT, OWNER)
     store = enki["store"]["authorization"]
     assert (store["principal_id"], store["subject_id"], store["origin"]) == (
         GENESIS,
@@ -254,6 +264,8 @@ async def test_concurrent_starts_create_one_enki_through_one_operation(world):
     [
         {"type": "chat"},
         {"role_name": "general"},
+        {"personality_key": "yoda"},
+        {"personality_key": "empty_eva"},  # the pre-Soul Enki after its migration
         {"creator": "someone-else"},
         {"store": None},  # not created through the provisioned Store scope
     ],

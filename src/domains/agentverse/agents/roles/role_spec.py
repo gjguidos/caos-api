@@ -161,7 +161,11 @@ class RoleSpec:
             "title": self.title or self.name.title(),
             "summary": self.summary,
             "description": self.description,
-            "rules": [asdict(rule) for rule in (self.rules or [])],
+            # RuleSpec is a pydantic model; tolerate dataclass rules for older callers.
+            "rules": [
+                rule.model_dump() if hasattr(rule, "model_dump") else asdict(rule)
+                for rule in (self.rules or [])
+            ],
             "emoji": self.emoji,
             "icon": self.icon,
             "color": self.color,

@@ -167,6 +167,12 @@ class AgentDefinitionStore:
                 raise InvalidStorePayload(
                     "Agent definition does not match its provisioned identity"
                 )
+            for field in ("role_name", "personality_key"):
+                pin = getattr(pinned, field)
+                if pin is not None and payload.get(field) != pin:
+                    raise InvalidStorePayload(
+                        "Agent definition does not match its provisioned identity"
+                    )
         try:
             return Agent.model_validate({**payload, **derived})
         except ValidationError as exc:

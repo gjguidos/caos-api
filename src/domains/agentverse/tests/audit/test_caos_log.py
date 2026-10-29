@@ -208,6 +208,21 @@ GENESIS_EVENTS = {
         "failed",
         {"resource_type": "agent", "code": "STORE_AMBIGUOUS_WRITE", "retryable": True},
     ),
+    "genesis.activation.completed": (
+        "rejected",
+        {"slot": "thoth", "state": "denied", "already_active": False, "code": "activation.denied"},
+    ),
+    "genesis.readiness.completed": (
+        "failed",
+        {
+            "slot": "thoth",
+            "probe": "chat.context",
+            "context_ok": True,
+            "grants_ok": True,
+            "backend_ok": False,
+            "code": "readiness.backend_unavailable",
+        },
+    ),
 }
 
 

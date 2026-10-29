@@ -91,7 +91,7 @@ class _Frozen(BaseModel):
 
 class GenesisInitiationMetadata(_Frozen):
     event_version: Literal[1]
-    slot: Literal["enki"]
+    slot: Literal["enki", "thoth"]
     executor_id: Identifier
     creation_digest: Digest
 
@@ -122,6 +122,26 @@ class GenesisStoreFailedMetadata(_Frozen):
     retryable: StrictBool
 
 
+class GenesisActivationMetadata(_Frozen):
+    """Khepri's separately authorized activation of a Genesis-provisioned agent."""
+
+    slot: Slot
+    state: Literal["active", "denied", "failed"]
+    already_active: StrictBool = False
+    code: IssueCode | None = None
+
+
+class GenesisReadinessMetadata(_Frozen):
+    """Observed checks only; a check that did not run is never reported as passed."""
+
+    slot: Slot
+    probe: Literal["chat.context"]
+    context_ok: StrictBool
+    grants_ok: StrictBool
+    backend_ok: StrictBool
+    code: IssueCode | None = None
+
+
 Outcome = Literal["succeeded", "failed", "rejected"]
 
 
@@ -147,6 +167,13 @@ EVENT_CATALOG: dict[str, _EventSpec] = {
     "genesis.store.failed": _EventSpec(
         metadata=GenesisStoreFailedMetadata, outcomes=frozenset({"failed", "rejected"})
     ),
+    "genesis.activation.completed": _EventSpec(
+        metadata=GenesisActivationMetadata,
+        outcomes=frozenset({"succeeded", "failed", "rejected"}),
+    ),
+    "genesis.readiness.completed": _EventSpec(
+        metadata=GenesisReadinessMetadata, outcomes=frozenset({"succeeded", "failed"})
+    ),
 }
 EventType = Literal[
     "genesis.initiation.authorized",
@@ -154,6 +181,8 @@ EventType = Literal[
     "genesis.composition.completed",
     "genesis.store.completed",
     "genesis.store.failed",
+    "genesis.activation.completed",
+    "genesis.readiness.completed",
 ]
 
 

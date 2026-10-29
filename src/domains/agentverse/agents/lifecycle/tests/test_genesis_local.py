@@ -233,3 +233,59 @@ async def test_local_session_admits_exactly_the_operators_enabled_approvals(loca
     req, _ = request(approvals, {})
     with pytest.raises(HTTPException):
         await provision_local(req)
+
+
+# --- G2.1 Recursive Genesis: Enki -> Genesis -> Thoth -----------------------------------
+
+from src.domains.agentverse.agents.genesis.initiation import THOTH_SIGNAL
+from src.domains.agentverse.dependencies.genesis_local import (
+    THOTH,
+    THOTH_HANDOFF,
+    THOTH_PROVISION,
+)
+
+G21_GRANTS = {**LOCAL_GRANTS, ENKI: [*CHAT, THOTH_SIGNAL], THOTH: CHAT}
+G21 = {
+    "grants": G21_GRANTS,
+    "provisions": {"enki": ENKI_PROVISION, "thoth": THOTH_PROVISION},
+    "handoffs": (ENKI_HANDOFF, THOTH_HANDOFF),
+}
+
+
+@pytest.mark.asyncio
+async def test_g21_policy_is_accepted_and_seeds_nothing(local):
+    container, definitions, _ = local_container(**G21)
+    await initialize_local(container)
+    definitions.repository.create.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "change",
+    [
+        # Enki never receives Store, validation or the Enki contract.
+        {"grants": {**G21_GRANTS, ENKI: [*CHAT, THOTH_SIGNAL, "store.create.provisioned"]}},
+        {"grants": {**G21_GRANTS, ENKI: [*CHAT, THOTH_SIGNAL, "data.validation"]}},
+        {"grants": {**G21_GRANTS, ENKI: [*CHAT, THOTH_SIGNAL, SIGNAL]}},
+        # JOSHUA's contract is not extended to Thoth; Thoth holds only conversation.
+        {"grants": {**G21_GRANTS, JOSHUA: [SIGNAL, THOTH_SIGNAL]}},
+        {"grants": {**G21_GRANTS, THOTH: [*CHAT, THOTH_SIGNAL]}},
+        {"grants": {**G21_GRANTS, ENKI: CHAT}},  # Thoth pinned without a requester
+        {"handoffs": (ENKI_HANDOFF,)},
+        {"handoffs": (ENKI_HANDOFF, THOTH_HANDOFF.model_copy(update={"initiator_id": JOSHUA}))},
+        {"handoffs": (ENKI_HANDOFF, THOTH_HANDOFF.model_copy(update={"activation": "none"}))},
+        {"provisions": {"enki": ENKI_PROVISION}},
+        {
+            "provisions": {
+                "enki": ENKI_PROVISION,
+                "thoth": THOTH_PROVISION.model_copy(update={"role_name": "enki"}),
+            }
+        },
+    ],
+)
+async def test_g21_policy_must_be_exact(local, change):
+    container, definitions, utu = local_container(**{**G21, **change})
+    with pytest.raises(ValueError):
+        await initialize_local(container)
+    definitions.repository.create.assert_not_awaited()
+    utu.install_policy.assert_not_awaited()

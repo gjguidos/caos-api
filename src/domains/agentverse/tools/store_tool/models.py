@@ -90,6 +90,9 @@ class ProvisionedIdentity(BaseModel):
     name: Annotated[str, Field(min_length=1)]
     type: PolicyId
     runtime_version: Literal["v1", "v2"]
+    # Optional composition pins; when set, Store refuses any other role/personality.
+    role_name: PolicyId | None = None
+    personality_key: PolicyId | None = None
 
 
 class StoreProvisionedCreateRequest(BaseModel):

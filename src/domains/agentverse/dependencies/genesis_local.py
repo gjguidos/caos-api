@@ -9,7 +9,7 @@ if TYPE_CHECKING:
     from src.base.dependencies.di_container import Container
 
 from src.base.events.v2.contracts import EventPermissionError
-from src.domains.agentverse.agents.genesis.initiation import SIGNAL, GenesisHandoff
+from src.domains.agentverse.agents.genesis.initiation import SIGNAL, THOTH_SIGNAL, GenesisHandoff
 from src.domains.agentverse.agents.lifecycle.agent_principal_resolver import SystemCitizen
 from src.domains.agentverse.security.revocation import policy_version
 from src.domains.agentverse.tools.store_tool.models import ProvisionedIdentity
@@ -20,6 +20,8 @@ OWNER = "00000000-0000-4000-8000-000000000001"
 GENESIS = "00000000-0000-4000-8000-000000000003"
 ENKI = "00000000-0000-4000-8000-000000000004"
 JOSHUA = "00000000-0000-4000-8000-000000000005"
+# G2.1 Recursive Genesis: Enki requests Thoth, a V2 chat Cognitive Agent.
+THOTH = "00000000-0000-4000-8000-000000000006"
 ENKI_HANDOFF = GenesisHandoff(
     tenant_id=TENANT,
     subject_id=OWNER,
@@ -41,9 +43,36 @@ ENKI_PROVISION = ProvisionedIdentity(
     name="Enki",
     type="form",
     runtime_version="v2",
+    role_name="enki",
+    personality_key="enki",
 )
-# The only local policy shape: JOSHUA -> Genesis -> Enki. Nothing is seeded.
+THOTH_HANDOFF = GenesisHandoff(
+    tenant_id=TENANT,
+    subject_id=OWNER,
+    initiator_id=ENKI,
+    executor_id=GENESIS,
+    agent_id=THOTH,
+    slot="thoth",
+    activation="requester_session",
+)
+THOTH_PROVISION = ProvisionedIdentity(
+    slot="thoth",
+    resource_type="agent",
+    agent_id=THOTH,
+    tenant_id=TENANT,
+    principal_id=GENESIS,
+    subject_id=OWNER,
+    name="Thoth",
+    type="chat",
+    runtime_version="v2",
+    role_name="thoth",
+    personality_key="thoth",
+)
+# Accepted local shapes; nothing is seeded in either.
+# G1: JOSHUA -> Genesis -> Enki. G2.1 adds Enki -> Genesis -> Thoth.
 _LOCAL = frozenset({(TENANT, GENESIS), (TENANT, ENKI), (TENANT, JOSHUA)})
+_LOCAL_G21 = _LOCAL | {(TENANT, THOTH)}
+_ENKI_REQUESTER_GRANTS = frozenset({"chat.context", "chat.response", THOTH_SIGNAL})
 # Deterministic System Citizens: resolved from trusted policy, never coll_agents.
 CITIZENS = {
     (TENANT, GENESIS): SystemCitizen(TENANT, GENESIS, "Genesis"),
@@ -67,21 +96,31 @@ async def initialize_local(container: Container) -> None:
     policy = av.synaptic_authorization()
     approvals = av.genesis_approvals()
     scopes = frozenset(approvals)
-    if scopes != _LOCAL or set(policy._grants) != scopes:
-        raise ValueError("Local Genesis requires exactly the JOSHUA, Genesis and Enki policy")
+    if scopes not in (_LOCAL, _LOCAL_G21) or set(policy._grants) != scopes:
+        raise ValueError("Local Genesis requires exactly the G1 or G2.1 Genesis policy")
+    recursive = scopes == _LOCAL_G21
     for approval in approvals.values():
         if approval.owner_user_id != OWNER or not approval.enabled:
             raise ValueError("Local approval identity mismatch")
     if policy._trusted_lines:
         raise ValueError("Local Genesis policy allows no trusted lines")
-    allowed = {GENESIS: (_GENESIS_GRANTS,), JOSHUA: (frozenset({SIGNAL}),), ENKI: _CHAT_GRANTS}
+    allowed = {
+        GENESIS: (_GENESIS_GRANTS,),
+        JOSHUA: (frozenset({SIGNAL}),),
+        # Enki's only non-conversational grant is the Thoth creation contract.
+        ENKI: (_ENKI_REQUESTER_GRANTS,) if recursive else _CHAT_GRANTS,
+        THOTH: (frozenset({"chat.context", "chat.response"}),),
+    }
     for _, agent in scopes:
         if policy._grants[(TENANT, agent)].invoke not in allowed[agent]:
             raise ValueError("Local agent grants differ from the explicit local policy")
-    if dict(av.genesis_provisions()) != {"enki": ENKI_PROVISION}:
-        raise ValueError("Local Genesis requires exactly the pinned Enki provisioned identity")
-    if tuple(av.genesis_handoffs()) != (ENKI_HANDOFF,):
-        raise ValueError("Local Genesis requires exactly the pinned JOSHUA handoff")
+    provisions = {"enki": ENKI_PROVISION} | ({"thoth": THOTH_PROVISION} if recursive else {})
+    if dict(av.genesis_provisions()) != provisions:
+        raise ValueError("Local Genesis requires exactly the pinned provisioned identities")
+    handoffs = {ENKI_HANDOFF} | ({THOTH_HANDOFF} if recursive else set())
+    handoffs_seen = tuple(av.genesis_handoffs())
+    if len(handoffs_seen) != len(handoffs) or set(handoffs_seen) != handoffs:
+        raise ValueError("Local Genesis requires exactly the pinned handoffs")
     if dict(av.genesis_citizens()) != CITIZENS:
         raise ValueError("Local policy requires exactly the pinned system citizens")
     definitions = av.db_service()

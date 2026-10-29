@@ -259,6 +259,20 @@ def configure_genesis_transport(app: FastAPI, bindings: GenesisSecurityBindings)
                     ),
                     authority=av.utu_authority(),
                 )
+                activation = None
+                if any(h.activation != "none" for h in bindings.handoffs):
+                    from src.domains.agentverse.agents.genesis.activation import (
+                        GenesisActivation,
+                    )
+
+                    activation = GenesisActivation(
+                        khepri=av.khepri(),
+                        instances=av.instance_registry_v2(),
+                        authority=av.utu_authority(),
+                        definitions=av.db_service(),
+                        catalog=lambda: getattr(app.state, "client_factory", None),
+                        log=log,
+                    )
                 register_genesis_initiation(
                     synaptic_registry_instance,
                     GenesisInitiation(
@@ -268,6 +282,7 @@ def configure_genesis_transport(app: FastAPI, bindings: GenesisSecurityBindings)
                         exchange=av.synaptic_exchange(),
                         provisioner=provisioner,
                         log=log,
+                        activation=activation,
                     ),
                 )
                 if len(bindings.bootstrap) > 1:

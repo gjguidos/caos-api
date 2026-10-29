@@ -221,6 +221,7 @@ def test_local_policy_declares_one_bootstrap_lease_for_the_two_citizens() -> Non
         "00000000-0000-4000-8000-000000000003",
     }
     assert (entry.creation["type"], entry.creation["role_name"]) == ("form", "enki")
+    assert entry.creation["personality_key"] == "enki"
 
 
 @pytest.mark.parametrize(
@@ -236,6 +237,10 @@ def test_local_policy_declares_one_bootstrap_lease_for_the_two_citizens() -> Non
         (lambda b: b[0]["creation"].update(name="Adam"), "pinned identity"),
         (lambda b: b[0]["creation"].update(role_name="general"), "composition"),
         (lambda b: b[0]["creation"].update(personality_key="other"), "composition"),
+        # The pre-Soul personality is no longer a reviewed Enki composition.
+        (lambda b: b[0]["creation"].update(personality_key="empty_eva"), "composition"),
+        # The migration allowance is gone; an unknown policy field is rejected.
+        (lambda b: b[0].update(compatible_personality_keys=["empty_eva"]), "Extra inputs"),
     ],
 )
 def test_bootstrap_policy_is_strict(change: Any, error: str) -> None:

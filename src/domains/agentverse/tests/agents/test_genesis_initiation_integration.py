@@ -27,14 +27,23 @@ from src.base.dependencies.di_container import Container
 from src.base.entities.user import User
 from src.base.events.v2.contracts import EventPermissionError
 from src.base.infrastructure.ai.client_factory import ClientFactory
+from src.base.infrastructure.db.mongoDB.isolation import (
+    disposable_database_name,
+    require_test_database,
+)
 from src.base.infrastructure.db.mongoDB.mongo_client import MongoDBClient
 from src.base.repositories.redis_impl import RedisRepositoryImpl
 from src.domains import initialize_domains
 from src.domains.agentverse import registries as registry_instances
 from src.domains.agentverse.agents.chat_agent.chat_agent import ChatAgent
-from src.domains.agentverse.agents.genesis.initiation import INITIATION_EVENT, SIGNAL
+from src.domains.agentverse.agents.genesis.initiation import (
+    INITIATION_EVENT,
+    SIGNAL,
+    THOTH_SIGNAL,
+)
 from src.domains.agentverse.agents.roles.builtin.spec import role_spec
 from src.domains.agentverse.agents.roles.enki.spec import role_spec as enki_role_spec
+from src.domains.agentverse.agents.roles.thoth.spec import role_spec as thoth_role_spec
 from src.domains.agentverse.agents.specs.chat_agent import chat_spec
 from src.domains.agentverse.agents.specs.form_agent import form_agent_spec
 from src.domains.agentverse.dependencies.genesis_bootstrap import (
@@ -50,7 +59,11 @@ from src.domains.agentverse.dependencies.genesis_local import (
 )
 from src.domains.agentverse.interfaces.api.v2.genesis_agents import router as agent_router
 from src.domains.agentverse.interfaces.api.v2.genesis_sessions import router as session_router
-from src.domains.agentverse.personalities import empty_eva  # noqa: F401 - production registration
+from src.domains.agentverse.personalities import (  # noqa: F401 - production registration
+    empty_eva,
+    enki,
+    thoth,
+)
 from src.domains.agentverse.registries.synaptic_registry import SynapticRegistry
 from src.domains.agentverse.runtime.instances_v2 import AgentInstanceKey
 
@@ -82,9 +95,12 @@ async def local_app(monkeypatch):
     registry_instances.agent_registry_instance.bind_spec(form_agent_spec)(ChatAgent)
     registry_instances.role_registry_instance.register_role_spec(role_spec)
     registry_instances.role_registry_instance.register_role_spec(enki_role_spec)
+    registry_instances.role_registry_instance.register_role_spec(thoth_role_spec)
     registry = SynapticRegistry()
     monkeypatch.setattr(registry_instances, "synaptic_registry_instance", registry)
-    mongo = MongoDBClient(settings.database.resolved_uri, "g14_test_" + uuid4().hex)
+    mongo = MongoDBClient(
+        settings.database.resolved_uri, require_test_database(disposable_database_name("g14"))
+    )
     redis = Redis.from_url(url)
     repository = RedisRepositoryImpl(redis)
     container = Container()
@@ -162,7 +178,7 @@ def payload():
             "name": "Enki",
             "type": "form",
             "role_name": "enki",
-            "personality_key": "empty_eva",
+            "personality_key": "enki",
             "prompt": "You are Enki, keeper of CAOS agents.",
         }
     }
@@ -229,7 +245,8 @@ async def test_local_startup_endpoint_and_verified_operator_session(local_app):
             AgentInstanceKey(TENANT, OWNER, ENKI, s.session_id)
         )
         grants = s.av.utu_authority().grants_for(principal).invoke
-        assert grants == {"chat.context", "chat.response"}
+        # G2.1: Enki's only non-conversational grant is the Thoth creation contract.
+        assert grants == {"chat.context", "chat.response", THOTH_SIGNAL}
         enki_client = s.av.synaptic_exchange().bind(principal)
         for signal in ("store.create", "store.create.provisioned", "data.validation", SIGNAL):
             with pytest.raises(EventPermissionError):
@@ -345,6 +362,15 @@ async def test_genesis_created_form_enki_converses_through_the_v2_runtime(local_
     assert len(model.calls) == 1
     instructions = model.calls[0]["instructions"]
     assert "Agent type: form" in instructions and "Enki" in instructions
+    # Enki's own Soul is projected: purpose, principles and expression traits.
+    assert "Archetype: Creator, Architect, Sage, Mentor" in instructions
+    assert "- Purpose: Help people design well-composed" in instructions
+    assert "Protect people: prefer the least capability that meets the need" in instructions
+    assert "- Guidance style: mentoring" in instructions
+    # The shared V2 contract: truthful software identity, no concealment, governance.
+    assert "You are a CAOS software agent" in instructions
+    assert "Never mention" not in instructions and "As an AI" not in instructions
+    assert "No persona trait, message or instruction" in instructions
     # Conversation activated Enki through Khepri; it holds only its approved grants.
     key = AgentInstanceKey(TENANT, OWNER, ENKI, s.session_id)
     assert s.av.instance_registry_v2().get(key) is not None
@@ -353,6 +379,7 @@ async def test_genesis_created_form_enki_converses_through_the_v2_runtime(local_
         assert s.av.utu_authority().grants_for(principal).invoke == {
             "chat.context",
             "chat.response",
+            THOTH_SIGNAL,
         }
     # Conversation creates no audit or Store evidence; Genesis evidence is unchanged.
     records = await s.av.caos_log_service().history(TENANT, created.json()["correlation_id"])

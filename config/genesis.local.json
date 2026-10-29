@@ -17,13 +17,21 @@
       "agent_id": "00000000-0000-4000-8000-000000000004",
       "owner_user_id": "00000000-0000-4000-8000-000000000001",
       "enabled": true
+    },
+    {
+      "tenant_id": "caos-local",
+      "agent_id": "00000000-0000-4000-8000-000000000006",
+      "owner_user_id": "00000000-0000-4000-8000-000000000001",
+      "enabled": true
     }
   ],
   "grants": [
     {
       "tenant_id": "caos-local",
       "agent_id": "00000000-0000-4000-8000-000000000005",
-      "invoke": ["genesis.enki.request"]
+      "invoke": [
+        "genesis.enki.request"
+      ]
     },
     {
       "tenant_id": "caos-local",
@@ -36,6 +44,15 @@
     {
       "tenant_id": "caos-local",
       "agent_id": "00000000-0000-4000-8000-000000000004",
+      "invoke": [
+        "chat.context",
+        "chat.response",
+        "genesis.thoth.request"
+      ]
+    },
+    {
+      "tenant_id": "caos-local",
+      "agent_id": "00000000-0000-4000-8000-000000000006",
       "invoke": [
         "chat.context",
         "chat.response"
@@ -68,8 +85,8 @@
         "name": "Enki",
         "type": "form",
         "role_name": "enki",
-        "personality_key": "empty_eva",
-        "prompt": "You are Enki. Prepare structured Agent creation drafts for review.",
+        "personality_key": "enki",
+        "prompt": "You are Enki. Guide the responsible composition of Cognitive Agents and prepare structured creation drafts for human review.",
         "visibility": "private"
       }
     }
@@ -82,6 +99,15 @@
       "executor_id": "00000000-0000-4000-8000-000000000003",
       "agent_id": "00000000-0000-4000-8000-000000000004",
       "slot": "enki"
+    },
+    {
+      "tenant_id": "caos-local",
+      "subject_id": "00000000-0000-4000-8000-000000000001",
+      "initiator_id": "00000000-0000-4000-8000-000000000004",
+      "executor_id": "00000000-0000-4000-8000-000000000003",
+      "agent_id": "00000000-0000-4000-8000-000000000006",
+      "slot": "thoth",
+      "activation": "requester_session"
     }
   ],
   "provisioned": [
@@ -94,7 +120,22 @@
       "subject_id": "00000000-0000-4000-8000-000000000001",
       "name": "Enki",
       "type": "form",
-      "runtime_version": "v2"
+      "runtime_version": "v2",
+      "role_name": "enki",
+      "personality_key": "enki"
+    },
+    {
+      "slot": "thoth",
+      "resource_type": "agent",
+      "agent_id": "00000000-0000-4000-8000-000000000006",
+      "tenant_id": "caos-local",
+      "principal_id": "00000000-0000-4000-8000-000000000003",
+      "subject_id": "00000000-0000-4000-8000-000000000001",
+      "name": "Thoth",
+      "type": "chat",
+      "runtime_version": "v2",
+      "role_name": "thoth",
+      "personality_key": "thoth"
     }
   ]
 }

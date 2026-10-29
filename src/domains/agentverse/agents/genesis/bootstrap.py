@@ -77,7 +77,10 @@ class GenesisBootstrap(BaseModel):
         ):
             raise ValueError("Genesis bootstrap creation differs from the pinned identity")
         profile = (self.creation.get("role_name"), self.creation.get("personality_key"))
-        if provision.type == "form" and profile != ("enki", "empty_eva"):
+        pins = (provision.role_name, provision.personality_key)
+        if provision.type == "form" and None in pins:
+            raise ValueError("Genesis bootstrap form slots require a pinned composition")
+        if any(pin is not None and value != pin for pin, value in zip(pins, profile, strict=True)):
             raise ValueError("Genesis bootstrap differs from the reviewed Enki composition")
 
 

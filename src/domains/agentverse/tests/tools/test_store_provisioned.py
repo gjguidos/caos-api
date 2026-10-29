@@ -291,6 +291,17 @@ async def test_direct_handler_call_with_forged_or_mismatched_permit_is_denied() 
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("override", [{"role_name": "enki"}, {"personality_key": "yoda"}])
+async def test_pinned_role_and_personality_are_enforced_by_store(override: dict[str, Any]) -> None:
+    pinned = ENKI_SLOT.model_copy(update={"role_name": "general", "personality_key": "empty_eva"})
+    s = stack(provisions={"enki": pinned})
+    result = await provision(s, body(candidate(**override)))
+    assert result["meta"]["code"] == "STORE_INVALID_PAYLOAD"
+    assert s.persistence.documents == []
+    assert (await provision(s, body()))["success"] is True
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "override", [{"name": "Not Enki"}, {"type": "orchestration"}, {"runtime_version": "v1"}]
 )
@@ -535,7 +546,7 @@ async def test_bootstrap_registers_only_with_grant_and_pinned_identity(
     assert STORE_CREATE_SIGNAL not in registry  # the provisioned grant never registers it
 
 
-def test_checked_in_local_policy_pins_only_enki_for_genesis() -> None:
+def test_checked_in_local_policy_pins_only_enki_and_thoth_for_genesis() -> None:
     from src.domains.agentverse.dependencies import genesis_local
     from src.domains.agentverse.dependencies.genesis_bootstrap import _provisions
 
@@ -543,7 +554,10 @@ def test_checked_in_local_policy_pins_only_enki_for_genesis() -> None:
     approvals = {
         (a["tenant_id"], a["agent_id"]): AgentActivationApproval(**a) for a in config["approvals"]
     }
-    assert _provisions(config["provisioned"], approvals) == {"enki": genesis_local.ENKI_PROVISION}
+    assert _provisions(config["provisioned"], approvals) == {
+        "enki": genesis_local.ENKI_PROVISION,
+        "thoth": genesis_local.THOTH_PROVISION,
+    }
     grants = {g["agent_id"]: set(g["invoke"]) for g in config["grants"]}
     assert grants[genesis_local.GENESIS] == GENESIS_GRANTS
     assert STORE_CREATE_SIGNAL not in set().union(*grants.values())
