@@ -7,18 +7,21 @@ never calls an LLM and never decides authorization: a valid result grants nothin
 
 from __future__ import annotations
 
-import importlib
 from collections.abc import Mapping
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ValidationError
 
 from src.base.entities.user import User
+from src.base.operations.v2.admission import canonical_json, sha256_hex
+from src.domains.agentverse.agents.conversational_composition_v2 import supports_v2_conversation
 from src.domains.agentverse.entities.workflow import slugify_workflow_key
 from src.domains.agentverse.exceptions import WorkflowNotFoundError
 from src.domains.agentverse.registries.base import Registry, RegistryItem
 from src.domains.agentverse.security import agent_access
 from src.domains.agentverse.services.registry_service import RegistryService
+from src.domains.agentverse.tools.config_contract import config_contract as _config_contract
 from src.domains.agentverse.tools.tool_manager_v1.validation import BACKEND_ALIAS
 from src.domains.agentverse.tools.validation_tool.models import (
     SERVER_CONTROLLED_FIELDS,
@@ -71,22 +74,36 @@ def _pydantic_issues(issues: _Issues, exc: ValidationError, *, prefix: str = "")
             issues.add(path, "field.invalid", error["msg"])
 
 
-def _config_contract(schema_ref: Any) -> type[BaseModel] | None:
-    """Resolve a registered ``config_schema`` to its Pydantic model, or ``None``.
+def _canonical(value: Any) -> Any:
+    """JSON-safe, deterministic form of registry or catalog content for fingerprinting."""
+    if isinstance(value, BaseModel):
+        return _canonical(value.model_dump(mode="python"))
+    if isinstance(value, Mapping):
+        return {str(key): _canonical(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_canonical(item) for item in value]
+    if isinstance(value, set | frozenset):
+        return sorted((_canonical(item) for item in value), key=canonical_json)
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, type) or callable(value):
+        module = getattr(value, "__module__", "") or ""
+        return f"{module.removeprefix('src.')}:{getattr(value, '__qualname__', '')}"
+    # Unknown objects fingerprint by type and text; any instability only fails closed.
+    return f"{type(value).__module__}:{type(value).__qualname__}:{value}"
 
-    Unlike V1 coercion, an unresolvable or non-model reference is reported to the
-    caller instead of silently accepting the raw dict.
-    """
-    if isinstance(schema_ref, type):
-        return schema_ref if issubclass(schema_ref, BaseModel) else None
-    if not isinstance(schema_ref, str) or "." not in schema_ref:
-        return None
-    module_path, _, name = schema_ref.rpartition(".")
-    try:
-        candidate = getattr(importlib.import_module(module_path), name, None)
-    except ImportError:
-        return None
-    return candidate if isinstance(candidate, type) and issubclass(candidate, BaseModel) else None
+
+def content_fingerprint(item: RegistryItem | Mapping[str, Any]) -> str:
+    """Digest of a resolved dependency's content, excluding process-local registration time."""
+    if isinstance(item, RegistryItem):
+        content: Any = item.model_dump(
+            mode="python", include={"key", "name", "description", "version", "metadata"}
+        )
+    else:
+        content = item
+    return sha256_hex(_canonical(content))
 
 
 def _rulepack_minimum(metadata: Mapping[str, Any]) -> int:
@@ -133,6 +150,7 @@ class AgentDefinitionValidator:
         self._whitelisted_groups(data.whitelisted_groups, requester, issues)
 
         workflow_tools = self._workflow_tools(workflows, issues)
+        self._gui(data, type_item, role_item, workflows, issues)
         if not issues:
             self._composition(type_item, role_item, tools, workflow_tools, rule_packs, issues)
         if issues or type_item is None or role_item is None or personality_item is None:
@@ -150,6 +168,11 @@ class AgentDefinitionValidator:
             "workflows": [doc["key"] for doc in workflows],
             "rule_pack_ids": [item.key for item in rule_packs],
         }
+        if data.gui_components:
+            # Only when declared, so inputs without GUI keep their normalized digest.
+            normalized["gui_components"] = [
+                component.model_dump(mode="json") for component in data.gui_components
+            ]
         resolved = {
             "type": self._ref_meta(type_item),
             "role": {
@@ -169,6 +192,18 @@ class AgentDefinitionValidator:
             ],
             "workflow_tools": sorted(workflow_tools),
             "required_backend_kinds": self._backend_kinds([*tools, *workflow_tools.values()]),
+            # Content, not just key@version: a review binds what was actually resolved.
+            "fingerprints": {
+                "type": content_fingerprint(type_item),
+                "role": content_fingerprint(role_item),
+                "personality": content_fingerprint(personality_item),
+                "rule_packs": {item.key: content_fingerprint(item) for item in rule_packs},
+                "tools": {item.key: content_fingerprint(item) for item in tools},
+                "workflows": {doc["key"]: content_fingerprint(doc) for doc in workflows},
+                "workflow_tools": {
+                    key: content_fingerprint(item) for key, item in workflow_tools.items()
+                },
+            },
         }
         return ValidationResult(
             valid=True,
@@ -285,6 +320,47 @@ class AgentDefinitionValidator:
     # ------------------------------------------------------------------
     # Workflows
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _gui(
+        data: AgentCreationInput,
+        type_item: RegistryItem | None,
+        role_item: RegistryItem | None,
+        workflows: list[dict[str, Any]],
+        issues: _Issues,
+    ) -> None:
+        """Presentation must match what the agent is and what it declares; never authority."""
+        agent_type = type_item.key if type_item else data.type
+        role = role_item.key if role_item else data.role_name
+        versions = {doc["key"]: doc["version"] for doc in workflows}
+        for index, component in enumerate(data.gui_components):
+            path = f"gui_components.{index}"
+            if component.type == "chat":
+                if not supports_v2_conversation(agent_type, role):
+                    issues.add(path, "gui.component_incompatible", "Agent has no V2 conversation")
+                continue
+            source = component.config.source
+            if source.kind == "contract":
+                if (agent_type, role) != ("form", "enki"):
+                    issues.add(
+                        f"{path}.config.source",
+                        "gui.contract_incompatible",
+                        "Contract form is reserved for its approved Agent composition",
+                    )
+                continue
+            key = slugify_workflow_key(source.key)
+            if key not in versions:
+                issues.add(
+                    f"{path}.config.source.key",
+                    "gui.workflow_unreferenced",
+                    "A form must present one of the Agent's own workflows",
+                )
+            elif versions[key] != source.version:
+                issues.add(
+                    f"{path}.config.source.version",
+                    "gui.workflow_version_mismatch",
+                    "Form workflow version differs from the referenced workflow",
+                )
 
     async def _resolve_workflows(
         self, values: list[str], requester: User, issues: _Issues

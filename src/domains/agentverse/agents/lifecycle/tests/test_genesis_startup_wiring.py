@@ -138,6 +138,8 @@ async def test_local_policy_declares_joshua_and_genesis_as_utu_system_citizens(
     assert grants[(genesis_local.TENANT, genesis_local.GENESIS)].invoke == {
         DATA_VALIDATION_SIGNAL,
         STORE_CREATE_PROVISIONED_SIGNAL,
+        # G3.4: executable only under the reviewed creation scope.
+        "store.create.approved",
     }
 
 

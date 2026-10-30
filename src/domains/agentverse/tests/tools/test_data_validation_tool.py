@@ -8,6 +8,7 @@ from typing import Any, ClassVar
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from src.base.entities.user import User
 from dependency_injector import providers
 from pydantic import BaseModel, Field
 
@@ -173,7 +174,10 @@ def authority(
     current = (policy_version(policy), "incarnation", "0", "0")
     resolver = AgentPrincipalResolver(
         definitions=SimpleNamespace(find_by_id=AsyncMock()),
-        sessions=SimpleNamespace(get_session=AsyncMock(), bind_revocation_handler=Mock()),
+        sessions=SimpleNamespace(
+            get_session=AsyncMock(), bind_revocation_handler=Mock(),
+            resource_requester=AsyncMock(return_value=User(id=KEY.user_id, tenant_id=TENANT)),
+        ),
         authorization=policy,
         approvals={},
     )
@@ -822,3 +826,97 @@ async def test_bootstrap_registers_data_validation_only_for_reviewed_policy(
             registry.resolve(DATA_VALIDATION_SIGNAL, DATA_VALIDATION_VERSION).handler
             == tool.validate
         )
+
+
+# --- GUI composition contract v1 --------------------------------------------------------
+
+CHAT_GUI = {"type": "chat", "key": "conversation", "default": True}
+
+
+def form_gui(source: dict[str, Any], **extra: Any) -> dict[str, Any]:
+    return {
+        "type": "form",
+        "key": "settings",
+        "default": True,
+        "config": {"source": source},
+        **extra,
+    }
+
+
+def gui_creation(**overrides: Any) -> dict[str, Any]:
+    return creation(role_name="general", tools=[], **overrides)
+
+
+@pytest.mark.asyncio
+async def test_gui_is_optional_and_absent_gui_keeps_the_normalized_digest(stack) -> None:
+    s = stack()
+    without = await validate(s, gui_creation())
+    assert without["valid"] and "gui_components" not in without["normalized"]
+    declared = await validate(s, gui_creation(gui_components=[CHAT_GUI]))
+    assert declared["valid"], declared["issues"]
+    assert declared["normalized"]["gui_components"] == [{**CHAT_GUI, "version": 1, "config": {}}]
+    assert declared["normalized_digest"] != without["normalized_digest"]
+
+
+@pytest.mark.asyncio
+async def test_form_presents_one_of_the_agents_own_workflows_at_its_version(stack) -> None:
+    s = stack()
+    source = {"kind": "workflow", "key": "flow", "version": "1.2.0"}
+    result = await validate(
+        s, gui_creation(gui_components=[form_gui(source), {**CHAT_GUI, "default": False}])
+    )
+    assert result["valid"], result["issues"]
+    # The Agent never declares form fields; the Workflow owns them.
+    assert result["normalized"]["gui_components"][0]["config"] == {"source": source}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "component,expected",
+    [
+        (
+            form_gui({"kind": "workflow", "key": "audited_flow", "version": "1.2.0"}),
+            ("gui_components.0.config.source.key", "gui.workflow_unreferenced"),
+        ),
+        (
+            form_gui({"kind": "workflow", "key": "flow", "version": "9.9.9"}),
+            ("gui_components.0.config.source.version", "gui.workflow_version_mismatch"),
+        ),
+        (
+            form_gui(
+                {"kind": "contract", "contract": "caos.agent_creation_draft", "schema_version": 1}
+            ),
+            ("gui_components.0.config.source", "gui.contract_incompatible"),
+        ),
+    ],
+)
+async def test_gui_references_must_match_the_agent(stack, component, expected) -> None:
+    result = await validate(stack(), gui_creation(gui_components=[component]))
+    assert not result["valid"] and expected in codes(result)
+
+
+@pytest.mark.asyncio
+async def test_chat_gui_requires_a_v2_conversational_composition(stack) -> None:
+    result = await validate(stack(), gui_creation(type="form", gui_components=[CHAT_GUI]))
+    assert ("gui_components.0", "gui.component_incompatible") in codes(result)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "components",
+    [
+        [{"type": "tabs", "key": "main", "default": True}],  # unsupported component type
+        [{**CHAT_GUI, "children": [CHAT_GUI]}],  # no nesting
+        [{**CHAT_GUI, "config": {"model": "gpt"}}],  # strictly validated config
+        [form_gui({"kind": "workflow", "key": "flow", "version": "1.2.0"}, fields=[{"key": "x"}])],
+        [{**CHAT_GUI, "version": 2}],
+        [CHAT_GUI, {**CHAT_GUI, "key": "second"}],  # two defaults
+        [{**CHAT_GUI, "default": False}],  # no default
+        [CHAT_GUI, {**CHAT_GUI, "default": False}],  # duplicate keys
+        [{**CHAT_GUI, "key": "Has Spaces"}],
+    ],
+)
+async def test_gui_structure_is_strict(stack, components) -> None:
+    result = await validate(stack(), gui_creation(gui_components=components))
+    assert not result["valid"]
+    assert all(issue["path"].startswith("gui_components") for issue in result["issues"])

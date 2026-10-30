@@ -15,6 +15,7 @@ from uuid import uuid4
 from src.base.events.v2.contracts import EventPermissionError
 from src.base.repositories.redis_repository import RedisRepository
 from src.domains.agentverse.runtime.instances_v2 import AgentInstanceKey
+from src.domains.agentverse.security.capability_scope import CapabilityBinding, CapabilityScope
 
 # One hash per tenant also works with Redis Cluster's single-slot Lua restriction.
 _READ = """
@@ -59,6 +60,29 @@ class ExecutionPermit:
     versions: tuple[str, ...]
     # Set by UTU from the verified session record and rechecked against it.
     origin: Literal["session", "bootstrap"] = "session"
+    scope: CapabilityScope | None = None
+    # Scoped child permits retain their path even when trusted code rebinds them.
+    binding_chain: tuple[CapabilityBinding, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.scope is not None and type(self.scope) is not CapabilityScope:
+            raise ValueError("Unknown capability restrictions")
+        if (
+            type(self.binding_chain) is not tuple
+            or len(self.binding_chain) > 64
+            or any(type(binding) is not CapabilityBinding for binding in self.binding_chain)
+            or (self.binding_chain and self.scope is None)
+        ):
+            raise ValueError("Invalid scoped invocation lineage")
+        if (
+            self.scope
+            and self.binding_chain
+            and (
+                self.binding_chain[0] != self.scope.entry
+                or any(binding not in self.scope.bindings for binding in self.binding_chain)
+            )
+        ):
+            raise ValueError("Invocation lineage exceeds capability scope")
 
 
 class RevocationStore(Protocol):

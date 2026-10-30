@@ -1,7 +1,9 @@
 """Activation and readiness of a Genesis-provisioned agent: separate authority, real evidence.
 
-Creation never implies activation. Only a handoff whose reviewed policy opts in
-(``activation="requester_session"``) reaches this step, and even then Khepri resolves
+Creation never implies activation. The default is an explicit, separately requested
+activation (:meth:`GenesisActivation.activate_provisioned`, DEV-0.2); only a handoff whose
+reviewed policy opts in (``activation="requester_session"``) reaches this step inside a
+creation request. Either way Khepri resolves
 the new agent's own UTU authority: its approval, the requester session's membership,
 its persisted definition and its grants. A denial is recorded, not retried around.
 
@@ -34,6 +36,9 @@ from src.domains.agentverse.security.utu import UTUAuthority
 
 if TYPE_CHECKING:
     from src.domains.agentverse.agents.genesis.initiation import GenesisHandoff
+    from src.domains.agentverse.agents.lifecycle.agent_principal_resolver import (
+        VerifiedAgentSession,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -67,13 +72,65 @@ class GenesisActivation:
         definitions: Definitions,
         catalog: Callable[[], ClientFactory | None],
         log: AuditSink,
+        handoffs: tuple[GenesisHandoff, ...] = (),
     ) -> None:
+        self._handoffs = handoffs
         self._khepri = khepri
         self._instances = instances
         self._authority = authority
         self._definitions = definitions
         self._catalog = catalog
         self._log = log
+
+    async def activate_provisioned(
+        self, session: VerifiedAgentSession, agent_id: str, creation_operation_id: str
+    ) -> dict[str, Any]:
+        """Khepri activation of a Genesis-provisioned agent as its own operation.
+
+        Separately requested and authorized: a live human session, a reviewed handoff
+        identity owned by that human, and Genesis store evidence proving this exact
+        agent was created by the named operation. The operation ID is a reference
+        verified against Seshat, never authority. Evidence is correlated with that
+        Genesis operation and caused by its store record, attributed to the agent's
+        own permit (Khepri resolves it); nothing is created here.
+        """
+        if session.origin != "session" or not session.active:
+            raise EventPermissionError("A live authenticated human session is required")
+        handoff = next(
+            (
+                h
+                for h in self._handoffs
+                if (h.tenant_id, h.subject_id, h.agent_id)
+                == (session.tenant_id, session.user_id, agent_id)
+            ),
+            None,
+        )
+        if handoff is None:
+            raise EventPermissionError("Not a reviewed Genesis-provisioned identity")
+        records = await self._log.history(session.tenant_id, creation_operation_id)
+        store = next(
+            (
+                r
+                for r in records
+                if r.event_type == "genesis.store.completed"
+                and r.outcome == "succeeded"
+                and r.subject.resource_id == agent_id
+                and str(r.operation_id) == creation_operation_id
+            ),
+            None,
+        )
+        if store is None:
+            raise EventPermissionError("No Genesis creation evidence for this agent")
+        key = AgentInstanceKey(session.tenant_id, session.user_id, agent_id, session.session_id)
+        # The agent's own current authority (approval, membership, grants); a denial
+        # here records nothing because no permit attributes it.
+        requester = (await self._authority.resolve_agent_principal(key)).permit
+        return await self.activate(
+            requester=requester,
+            handoff=handoff,
+            correlation_id=creation_operation_id,
+            causation_id=store.event_id,
+        )
 
     async def activate(
         self,

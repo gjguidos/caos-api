@@ -1,0 +1,99 @@
+{
+  "contract": "caos.nataraja.manifest.v1",
+  "revision": 2,
+  "environment": "caos-local",
+  "tenant_id": "caos-local",
+  "owner_id": "00000000-0000-4000-8000-000000000001",
+  "system_citizens": [
+    {
+      "name": "JOSHUA",
+      "principal_id": "00000000-0000-4000-8000-000000000005",
+      "requirement": "required"
+    },
+    {
+      "name": "Genesis",
+      "principal_id": "00000000-0000-4000-8000-000000000003",
+      "requirement": "required"
+    }
+  ],
+  "system_services": [
+    {
+      "name": "UTU",
+      "requirement": "required"
+    },
+    {
+      "name": "CPBX",
+      "requirement": "required"
+    },
+    {
+      "name": "Khepri",
+      "requirement": "required"
+    },
+    {
+      "name": "Seshat",
+      "requirement": "required"
+    }
+  ],
+  "agents": [
+    {
+      "name": "Enki",
+      "agent_id": "00000000-0000-4000-8000-000000000004",
+      "requirement": "required",
+      "type": "form",
+      "role_name": "enki",
+      "personality_key": "enki",
+      "runtime_version": "v2",
+      "creation": {
+        "via": "genesis_bootstrap",
+        "slot": "enki",
+        "initiator": "00000000-0000-4000-8000-000000000005",
+        "signal": "genesis.enki.request"
+      },
+      "gui": [
+        {
+          "key": "agent_configuration",
+          "type": "form",
+          "default": true
+        },
+        {
+          "key": "conversation",
+          "type": "chat",
+          "default": false
+        }
+      ],
+      "lifecycle": {
+        "after_creation": "sleeping",
+        "activation": "khepri_independent",
+        "activation_operation": "agent.lifecycle.activate"
+      }
+    },
+    {
+      "name": "Thoth",
+      "agent_id": "00000000-0000-4000-8000-000000000006",
+      "requirement": "deferred",
+      "type": "chat",
+      "role_name": "thoth",
+      "personality_key": "thoth",
+      "runtime_version": "v2",
+      "creation": {
+        "via": "genesis_request",
+        "slot": "thoth",
+        "initiator": "00000000-0000-4000-8000-000000000004",
+        "signal": "genesis.thoth.request"
+      },
+      "gui": [
+        {
+          "key": "conversation",
+          "type": "chat",
+          "default": true
+        }
+      ],
+      "lifecycle": {
+        "after_creation": "sleeping",
+        "activation": "khepri_independent",
+        "activation_operation": "agent.lifecycle.activate"
+      }
+    }
+  ],
+  "manual_agents": "allowed"
+}

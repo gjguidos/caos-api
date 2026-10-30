@@ -57,6 +57,9 @@ class DataValidationTool:
                 "issue_codes": sorted({issue.code for issue in result.issues}),
                 "tenant_id": synapse.tenant_id,
                 "principal_id": synapse.source,
+                "provider": synapse.target,
+                "provider_version": synapse.provider_version,
+                "entry_operation": synapse.entry_operation,
             },
         )
         return ToolResult(success=True, result=result.model_dump(mode="json")).model_dump()
@@ -101,10 +104,15 @@ class DataValidationTool:
             permit.key.agent_id,
         ) != (synapse.tenant_id, synapse.source):
             raise EventPermissionError("data.validation requires a UTU execution permit")
-        await self._authority.check_permit(permit)
-        # Same construction UTU uses for verified sessions: no roles are inferred,
-        # so group-scoped private resources stay unreadable (fail closed).
-        return User(id=permit.key.user_id, tenant_id=permit.key.tenant_id)
+        if permit.scope and (
+            not permit.binding_chain
+            or permit.binding_chain[-1].signal != DATA_VALIDATION_SIGNAL
+            or permit.binding_chain[-1].provider != DATA_VALIDATION_PROVIDER
+            or permit.binding_chain[-1].version != DATA_VALIDATION_VERSION
+            or synapse.provider_version != DATA_VALIDATION_VERSION
+        ):
+            raise EventPermissionError("data.validation requires its scoped CPBX invocation")
+        return await self._authority.resource_requester(permit)
 
 
 def register_data_validation(

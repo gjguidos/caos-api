@@ -42,7 +42,15 @@ THOTH_SIGNAL = "genesis.thoth.request"
 # One exact initiation contract per pinned slot.
 SIGNALS = {"enki": SIGNAL, "thoth": THOTH_SIGNAL}
 # Executor-only capabilities an initiator must never hold itself.
-_EXECUTOR_SIGNALS = frozenset({"data.validation", "store.create", "store.create.provisioned"})
+_EXECUTOR_SIGNALS = frozenset(
+    {"data.validation", "store.create", "store.create.provisioned", "store.create.approved"}
+)
+# Reviewed executor grant sets: G1, or G1 plus G3.4's scope-only approved creation
+# (store.create.approved refuses every permit outside its creation scope).
+_EXECUTOR_GRANTS = (
+    frozenset({"data.validation", "store.create.provisioned"}),
+    frozenset({"data.validation", "store.create.provisioned", "store.create.approved"}),
+)
 VERSION = "1.0.0"
 PROVIDER = "system.genesis"
 INITIATION_EVENT = "genesis.initiation.authorized"
@@ -150,8 +158,7 @@ class GenesisInitiation:
         if (
             signal not in initiator_grants
             or initiator_grants & (_EXECUTOR_SIGNALS | (set(SIGNALS.values()) - {signal}))
-            or self._authority.grants_for(executor).invoke
-            != frozenset({"data.validation", "store.create.provisioned"})
+            or self._authority.grants_for(executor).invoke not in _EXECUTOR_GRANTS
         ):
             raise EventPermissionError("Genesis handoff grants differ from the reviewed policy")
         pinned = self._provisions[handoff.slot]

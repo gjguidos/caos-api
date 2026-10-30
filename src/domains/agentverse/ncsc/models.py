@@ -24,6 +24,8 @@ class Synapse:
     synapse_id: str = field(default_factory=lambda: uuid4().hex)
     correlation_id: str = field(default_factory=lambda: uuid4().hex)
     causation_id: str | None = None
+    provider_version: str | None = None
+    entry_operation: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

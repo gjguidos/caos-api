@@ -223,6 +223,63 @@ GENESIS_EVENTS = {
             "code": "readiness.backend_unavailable",
         },
     ),
+    **{
+        event_type: (
+            "succeeded",
+            {
+                "event_version": 1,
+                "approval_id": "0b5c2d4e-1f00-5a00-8000-000000000001",
+                "review_digest": "e" * 64,
+                "normalized_digest": "f" * 64,
+                "source_agent_id": "enki",
+            },
+        )
+        for event_type in ("agent.creation_review.approved", "agent.creation_review.revoked")
+    },
+    **{
+        event_type: (
+            "succeeded",
+            {
+                "event_version": 1,
+                "creation_id": "0b5c2d4e-1f00-5a00-8000-000000000002",
+                "approval_id": "0b5c2d4e-1f00-5a00-8000-000000000001",
+                "review_digest": "e" * 64,
+                "source_agent_id": "enki",
+                "target_agent_id": "0b5c2d4e-1f00-5a00-8000-000000000003",
+                **extra,
+            },
+        )
+        for event_type, extra in (
+            ("agent.creation.authorized", {}),
+            ("agent.creation.completed", {"store_request_digest": "d" * 64, "created": True}),
+        )
+    },
+    **{
+        event_type: (
+            "succeeded",
+            {
+                "event_version": 1,
+                "proposal_id": "0b5c2d4e-1f00-5a00-8000-000000000004",
+                "draft_id": "0b5c2d4e-1f00-5a00-8000-000000000005",
+                "source_agent_id": "enki",
+                "proposer_agent_id": "enki",
+                "base_revision": 2,
+                "accepted_fields": accepted,
+                "rejected_fields": ["name"],
+                "proposal_digest": "a" * 64,
+                "decision_digest": "b" * 64,
+                **extra,
+            },
+        )
+        for event_type, accepted, extra in (
+            (
+                "agent.draft.proposal.accepted",
+                ["prompt"],
+                {"resulting_revision": 3, "content_digest": "c" * 64},
+            ),
+            ("agent.draft.proposal.rejected", [], {}),
+        )
+    },
 }
 
 

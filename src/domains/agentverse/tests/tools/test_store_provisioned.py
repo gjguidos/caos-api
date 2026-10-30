@@ -559,7 +559,8 @@ def test_checked_in_local_policy_pins_only_enki_and_thoth_for_genesis() -> None:
         "thoth": genesis_local.THOTH_PROVISION,
     }
     grants = {g["agent_id"]: set(g["invoke"]) for g in config["grants"]}
-    assert grants[genesis_local.GENESIS] == GENESIS_GRANTS
+    # G3.4 adds only the scope-restricted approved creation; never general store.create.
+    assert grants[genesis_local.GENESIS] == GENESIS_GRANTS | {"store.create.approved"}
     assert STORE_CREATE_SIGNAL not in set().union(*grants.values())
     assert config["trusted_lines"] == []
 

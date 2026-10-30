@@ -2,20 +2,46 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+_ID = r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+
+
+class ApprovedCreation(BaseModel):
+    """The effective human approval a governed manual creation writes (G3.4). Store
+    independently re-verifies it; naming it here confers nothing."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    approval_id: Annotated[str, Field(pattern=_ID)]
+    review_digest: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    creation_id: Annotated[str, Field(pattern=_ID)]
 
 
 class GenesisProvisionRequest(BaseModel):
     """What a trusted caller asks Genesis to provision. Identity and authority come
-    from the CPBX-issued client, never from this request."""
+    from the CPBX-issued client, never from this request. Exactly one target: a
+    policy-pinned ``slot`` or an ``approved`` human-reviewed creation."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    slot: Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")]
+    slot: Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")] | None = None
+    approved: ApprovedCreation | None = None
     creation: dict[str, Any]  # Agent Creation Input, validated by data.validation
+
+    @model_validator(mode="after")
+    def _one_target(self) -> Self:
+        if (self.slot is None) == (self.approved is None):
+            raise ValueError("Exactly one of slot or approved is required")
+        return self
+
+    @property
+    def step(self) -> str:
+        """Stable audit step of this target (unchanged for slots)."""
+        return self.slot if self.slot is not None else f"approved:{self.approved.approval_id}"
 
 
 GenesisStatus = Literal["provisioned", "rejected", "failed"]

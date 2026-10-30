@@ -17,6 +17,7 @@ import pytest_asyncio
 from dependency_injector import providers
 
 from src.base.events.v2.contracts import EventPermissionError
+from src.base.entities.user import User
 from src.base.infrastructure.ai.client_factory import ClientFactory
 from src.base.operations.v2.managed import (
     EpochMode,
@@ -351,7 +352,9 @@ def stack(
     versions = (policy_version(policy), "incarnation", "0", "0")
     revocations = SimpleNamespace(read=AsyncMock(return_value=versions))
     utu = UTUAuthority(
-        resolver=SimpleNamespace(_sessions=SimpleNamespace(), _definitions=SimpleNamespace()),
+        resolver=SimpleNamespace(_sessions=SimpleNamespace(
+            resource_requester=AsyncMock(side_effect=lambda key: User(id=key.user_id, tenant_id=key.tenant_id))
+        ), _definitions=SimpleNamespace()),
         authorization=policy,
         revocations=revocations,
     )

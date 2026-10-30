@@ -7,6 +7,15 @@ from uuid import uuid4
 from dependency_injector import containers, providers
 
 from src.base.dependencies.di_container import Container as BaseContainer
+from src.domains.agentverse.manuscripts.repository import MongoManuscriptSessionRepository
+from src.domains.agentverse.agents.creation_drafts.proposal_repository import (
+    MongoAgentDraftProposalRepository,
+)
+from src.domains.agentverse.agents.creation_drafts.repository import MongoAgentDraftRepository
+from src.domains.agentverse.agents.creation_review.creation import MongoAgentCreationRepository
+from src.domains.agentverse.agents.creation_review.repository import (
+    MongoDraftReviewApprovalRepository,
+)
 from src.domains.agentverse.agents.factory import AgentFactory
 from src.domains.agentverse.agents.factory_v2 import AgentFactoryV2
 from src.domains.agentverse.agents.lifecycle.agent_principal_resolver import (
@@ -158,6 +167,32 @@ class AgentverseContainer(containers.DeclarativeContainer):
     caos_log_service = providers.Singleton(
         CAOSLogService,
         repository=caos_log_repository,
+    )
+
+    # Human review approvals (G3.3); trusted coordinator only, grants nothing.
+    draft_review_approval_repository = providers.Singleton(
+        MongoDraftReviewApprovalRepository,
+        mongodb_repository=mongodb_repository,
+    )
+    # Governed manual creation operations (G3.4); trusted coordinator only.
+    agent_creation_repository = providers.Singleton(
+        MongoAgentCreationRepository,
+        mongodb_repository=mongodb_repository,
+    )
+    # Durable human-owned creation drafts (DRAFT-0.1); persistence only, grants nothing.
+    agent_draft_repository = providers.Singleton(
+        MongoAgentDraftRepository,
+        mongodb_repository=mongodb_repository,
+    )
+    # Draft proposals and their human decisions (DRAFT-0.2A); grants nothing.
+    agent_draft_proposal_repository = providers.Singleton(
+        MongoAgentDraftProposalRepository,
+        mongodb_repository=mongodb_repository,
+    )
+    # Manuscript interview sessions (MANUSCRIPT-0.1); persistence only, grants nothing.
+    manuscript_session_repository = providers.Singleton(
+        MongoManuscriptSessionRepository,
+        mongodb_repository=mongodb_repository,
     )
 
     orchestrator = providers.Singleton(
@@ -485,6 +520,11 @@ def extend_container(
     ns.store = av.store
     ns.validation = av.validation
     ns.caos_log_service = av.caos_log_service
+    ns.draft_review_approval_repository = av.draft_review_approval_repository
+    ns.agent_creation_repository = av.agent_creation_repository
+    ns.agent_draft_repository = av.agent_draft_repository
+    ns.agent_draft_proposal_repository = av.agent_draft_proposal_repository
+    ns.manuscript_session_repository = av.manuscript_session_repository
 
     # ------------------------------------------------------------------
     # Backwards-compatible aliases

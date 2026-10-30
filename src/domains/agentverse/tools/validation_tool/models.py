@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_vali
 from src.base.entities.user import User
 from src.base.operations.v2.admission import sha256_hex
 from src.domains.agentverse.entities.agent_request import NAME_PATTERN, RESERVED_NAMES
+from src.domains.agentverse.entities.gui_components import GuiComponent, check_components
 
 ValidationResourceType = Literal["agent"]
 
@@ -82,6 +83,13 @@ class AgentCreationInput(BaseModel):
     tools: list[ToolRefInput] = Field(default_factory=list)
     workflows: list[NonBlank] = Field(default_factory=list)
     rule_pack_ids: list[NonBlank] = Field(default_factory=list)
+    # Optional presentation; when omitted, composition applies the reviewed default.
+    gui_components: list[GuiComponent] = Field(default_factory=list)
+
+    @field_validator("gui_components")
+    @classmethod
+    def _gui_structure(cls, value: list[Any]) -> list[Any]:
+        return check_components(value)
 
     @field_validator("name")
     @classmethod

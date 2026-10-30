@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -22,6 +22,7 @@ from src.domains.agentverse.entities.resource_ownership import client_owns_scope
 from src.domains.agentverse.ncsc.authorization import SynapticAuthorization
 from src.domains.agentverse.ncsc.models import SynapticExecutionContext, SynapticGrants
 from src.domains.agentverse.runtime.instances_v2 import AgentInstanceKey
+from src.domains.agentverse.security.capability_scope import CapabilityScope
 from src.domains.agentverse.security.revocation import (
     ExecutionPermit,
     RevocationStore,
@@ -192,6 +193,51 @@ class UTUAuthority:
         await self.check_permit(permit)
         return AuthorizedAgentPrincipal(principal.agent_id, principal.tenant_id, permit)
 
+    async def attenuate(
+        self, principal: AuthorizedAgentPrincipal, scope: CapabilityScope
+    ) -> AuthorizedAgentPrincipal:
+        """Trusted in-process narrowing only; never exposed as an HTTP/synaptic factory.
+
+        Conservatively require every allowed binding's signal to already be a root
+        grant. Nested use must additionally pass the existing trusted-line policy.
+        """
+        if (
+            not isinstance(principal, AuthorizedAgentPrincipal)
+            or type(scope) is not CapabilityScope
+        ):
+            raise EventPermissionError("Verified principal and immutable scope required")
+        permit = principal.permit
+        await self.check_permit(permit)
+        if (principal.agent_id, principal.tenant_id) != (permit.key.agent_id, permit.key.tenant_id):
+            raise EventPermissionError("Attenuation principal mismatch")
+        if permit.scope:
+            try:
+                scope.require_subset(permit.scope)
+            except ValueError as exc:
+                raise EventPermissionError("Scope widening denied") from exc
+        for binding in scope.bindings:
+            self._authorization.require_invoke(
+                context=SynapticExecutionContext(principal.agent_id, principal.tenant_id),
+                signal=binding.signal,
+            )
+        await self.check_permit(permit)
+        return replace(principal, permit=replace(permit, scope=scope))
+
+    async def resource_requester(self, permit: ExecutionPermit) -> User:
+        """Resolve a fresh resource identity from the trusted session adapter, not payloads."""
+        await self.check_permit(permit)
+        resolve = getattr(self._resolver._sessions, "resource_requester", None)
+        if not callable(resolve):
+            raise EventPermissionError("Trusted resource requester is unavailable")
+        requester = await resolve(permit.key)
+        if not isinstance(requester, User) or (requester.id, requester.tenant_id) != (
+            permit.key.user_id,
+            permit.key.tenant_id,
+        ):
+            raise EventPermissionError("Trusted resource requester mismatch")
+        await self.check_permit(permit)
+        return requester.model_copy(deep=True)
+
     async def authorize_lifecycle(
         self, key: AgentInstanceKey, *, operation: LifecycleOperation
     ) -> None:
@@ -266,6 +312,16 @@ class UTUAuthority:
                 raise EventPermissionError("Conversation target capability denied")
 
     def require_invoke(self, *, context: SynapticExecutionContext, signal: str) -> None:
+        permit = context.permit
+        if isinstance(permit, ExecutionPermit) and permit.scope:
+            scope = permit.scope
+            if (
+                context.invocation_chain
+                != tuple(binding.signal for binding in permit.binding_chain)
+                or signal not in {binding.signal for binding in scope.bindings}
+                or (not context.invocation_chain and signal != scope.entry.signal)
+            ):
+                raise EventPermissionError("Invocation exceeds scoped UTU authority")
         self._authorization.require_invoke(context=context, signal=signal)
 
     @asynccontextmanager

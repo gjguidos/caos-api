@@ -273,7 +273,12 @@ async def test_g21_policy_is_accepted_and_seeds_nothing(local):
         {"grants": {**G21_GRANTS, ENKI: CHAT}},  # Thoth pinned without a requester
         {"handoffs": (ENKI_HANDOFF,)},
         {"handoffs": (ENKI_HANDOFF, THOTH_HANDOFF.model_copy(update={"initiator_id": JOSHUA}))},
-        {"handoffs": (ENKI_HANDOFF, THOTH_HANDOFF.model_copy(update={"activation": "none"}))},
+        {
+            "handoffs": (
+                ENKI_HANDOFF,
+                THOTH_HANDOFF.model_copy(update={"activation": "requester_session"}),
+            )
+        },
         {"provisions": {"enki": ENKI_PROVISION}},
         {
             "provisions": {

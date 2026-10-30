@@ -28,6 +28,7 @@ from src.domains.agentverse.dependencies.genesis_local import (
     TENANT,
     THOTH,
 )
+from src.domains.agentverse.manuscripts.capability import SIGNALS as _MANUSCRIPT
 from src.domains.agentverse.runtime.instances_v2 import AgentInstanceKey
 from src.domains.agentverse.tests.agents.test_genesis_initiation_integration import (  # noqa: F401
     endpoint,
@@ -37,6 +38,8 @@ from src.domains.agentverse.tests.agents.test_genesis_initiation_integration imp
 from src.domains.agentverse.tools.chat_tool_v2.synaptic import chat_context
 
 AGENTS = "/api/v2/agentverse/agents"
+
+MANUSCRIPT_SIGNALS = set(_MANUSCRIPT.values())
 
 
 def thoth_payload(**changes):
@@ -77,8 +80,29 @@ async def signal(s, agent, name, body=None):
     return await s.client.post(f"{AGENTS}/{agent}/signals/{name}", json=body or {})
 
 
+async def activate(s, agent, operation_id):
+    """Khepri activation as its own request (DEV-0.2): never part of creation."""
+    return await s.client.post(
+        f"{AGENTS}/{agent}/activation",
+        json={
+            "contract": "caos.agent_activation_request",
+            "schema_version": 1,
+            "creation_operation_id": operation_id,
+        },
+    )
+
+
+async def create_and_activate_thoth(s):
+    body = (await signal(s, ENKI, THOTH_SIGNAL, thoth_payload())).json()
+    assert body["status"] == "provisioned" and "activation" not in body, body
+    activated = await activate(s, THOTH, body["operation_id"])
+    assert activated.status_code == 200, activated.text
+    assert (activated.json()["state"], activated.json()["ready"]) == ("active", True)
+    return body, activated.json()
+
+
 @pytest.mark.asyncio
-async def test_enki_creates_thoth_through_genesis_and_khepri_with_correct_evidence(local_app):  # noqa: F811 - shared fixture
+async def test_enki_creates_sleeping_thoth_and_khepri_activates_it_separately(local_app):  # noqa: F811 - shared fixture
     s = await with_enki(local_app)
     agents = s.mongo.db["coll_agents"]
 
@@ -103,12 +127,12 @@ async def test_enki_creates_thoth_through_genesis_and_khepri_with_correct_eviden
         assert (await signal(s, ENKI, THOTH_SIGNAL, thoth_payload(**change))).status_code == 403
     assert await agents.count_documents({"id": THOTH}) == 0
 
-    # 5. Genesis validates, composes and persists; Khepri separately activates.
+    # 5. Genesis validates, composes and persists; creation never activates.
     response = await signal(s, ENKI, THOTH_SIGNAL, thoth_payload())
     assert response.status_code == 200, response.text
     body = response.json()
     assert (body["status"], body["agent_id"], body["created"]) == ("provisioned", THOTH, True)
-    assert body["activation"]["state"] == "active" and body["activation"]["ready"] is True
+    assert "activation" not in body
     thoth = await agents.find_one({"id": THOTH})
     assert (
         thoth["name"],
@@ -137,6 +161,25 @@ async def test_enki_creates_thoth_through_genesis_and_khepri_with_correct_eviden
     )
     assert thoth["store"]["authorization"]["principal_id"] == GENESIS
     key = AgentInstanceKey(TENANT, OWNER, THOTH, s.session_id)
+    assert s.av.instance_registry_v2().get(key) is None  # persisted sleeping
+    created = await s.av.caos_log_service().history(TENANT, body["correlation_id"])
+    assert sorted(r.event_type for r in created) == sorted(
+        [
+            INITIATION_EVENT,
+            "genesis.validation.completed",
+            "genesis.composition.completed",
+            "genesis.store.completed",
+        ]
+    )
+
+    # Activation is a separate, separately authorized Khepri request that must name
+    # the creating Genesis operation; an unrelated operation or agent is refused.
+    for agent, operation in ((THOTH, str(uuid4())), (ENKI, body["operation_id"])):
+        assert (await activate(s, agent, operation)).status_code == 403
+    assert s.av.instance_registry_v2().get(key) is None
+    activated = await activate(s, THOTH, body["operation_id"])
+    assert activated.status_code == 200, activated.text
+    assert (activated.json()["state"], activated.json()["ready"]) == ("active", True)
     assert s.av.instance_registry_v2().get(key) is not None
 
     # 9. Attribution and causality, all under the one Genesis operation.
@@ -184,7 +227,7 @@ async def test_enki_creates_thoth_through_genesis_and_khepri_with_correct_eviden
         True,
         body["operation_id"],
     )
-    assert again["activation"]["state"] == "active"
+    assert "activation" not in again
     assert await agents.count_documents({"id": THOTH}) == 1
     assert set(await agents.distinct("id")) == {ENKI, THOTH}
     repeated = await s.av.caos_log_service().history(TENANT, body["correlation_id"])
@@ -199,20 +242,16 @@ async def test_creation_does_not_authorize_activation(local_app):  # noqa: F811 
     assert (await s.client.post(f"{AGENTS}/{ENKI}/awaken")).status_code == 200
     await s.av.utu_authority().revoke(TENANT, agent_id=THOTH)
     body = (await signal(s, ENKI, THOTH_SIGNAL, thoth_payload())).json()
-    assert body["status"] == "provisioned" and body["activation"] == {
-        "state": "denied",
-        "ready": False,
-    }
+    assert body["status"] == "provisioned" and "activation" not in body
     assert await s.mongo.db["coll_agents"].count_documents({"id": THOTH}) == 1
     key = AgentInstanceKey(TENANT, OWNER, THOTH, s.session_id)
     assert s.av.instance_registry_v2().get(key) is None
+    # The separate activation is refused by UTU before Khepri acts.
+    assert (await activate(s, THOTH, body["operation_id"])).status_code == 403
+    assert s.av.instance_registry_v2().get(key) is None
     records = await s.av.caos_log_service().history(TENANT, body["correlation_id"])
-    denied = [r for r in records if r.event_type == ACTIVATION_EVENT]
-    # The refusal is attributed to the requesting Enki; no readiness is claimed.
-    assert [(r.outcome, r.actor.principal_id, r.metadata["state"]) for r in denied] == [
-        ("rejected", ENKI, "denied")
-    ]
-    assert not any(r.event_type == READINESS_EVENT for r in records)
+    # No activation or readiness is claimed for an agent that was never awakened.
+    assert not any(r.event_type in (ACTIVATION_EVENT, READINESS_EVENT) for r in records)
 
 
 @pytest.mark.asyncio
@@ -222,7 +261,7 @@ async def test_thoth_answers_v2_conversation_with_its_own_permits(local_app):  #
 
     s = await with_enki(local_app)
     assert (await s.client.post(f"{AGENTS}/{ENKI}/awaken")).status_code == 200
-    assert (await signal(s, ENKI, THOTH_SIGNAL, thoth_payload())).json()["activation"]["ready"]
+    await create_and_activate_thoth(s)
     conversations = s.av.conversation_repository_v2()
     dispatcher = s.av.client_event_dispatcher_v2()
     token = s.client.headers["Authorization"][7:]
@@ -305,7 +344,7 @@ async def test_soul_and_conversation_claims_cannot_obtain_privileged_execution(
 
     s = await with_enki(local_app)
     assert (await s.client.post(f"{AGENTS}/{ENKI}/awaken")).status_code == 200
-    assert (await signal(s, ENKI, THOTH_SIGNAL, thoth_payload())).json()["activation"]["ready"]
+    await create_and_activate_thoth(s)
 
     def overreaching(key):
         soul = resolve_personality(key)
@@ -355,7 +394,9 @@ async def test_soul_and_conversation_claims_cannot_obtain_privileged_execution(
 
     # UTU grants are unchanged and CPBX still denies every privileged signal.
     expected = {
-        ENKI: {"chat.context", "chat.response", THOTH_SIGNAL},
+        # DRAFT-0.2A/MANUSCRIPT-0.1A: Enki's scoped capabilities, never privileged execution.
+        ENKI: {"chat.context", "chat.response", THOTH_SIGNAL, "agent.draft.propose"}
+        | MANUSCRIPT_SIGNALS,
         THOTH: {"chat.context", "chat.response"},
     }
     async with s.sessions.authenticated(token):
@@ -409,13 +450,8 @@ async def test_g2_end_to_end_from_bootstrap_without_v1_runtime(local_app, monkey
     for name in FORBIDDEN:
         assert (await signal(s, ENKI, name, {"creation": {}})).status_code == 403, name
     # 4-6. Pinned provisioning, idempotent replay, independent activation.
-    body = (await signal(s, ENKI, THOTH_SIGNAL, thoth_payload())).json()
+    body, _ = await create_and_activate_thoth(s)
     assert (body["status"], body["agent_id"], body["created"]) == ("provisioned", THOTH, True)
-    assert body["activation"] == {
-        **body["activation"],
-        "state": "active",
-        "ready": True,
-    }
     thoth = await agents.find_one({"id": THOTH})
     assert (
         thoth["name"],
@@ -424,6 +460,14 @@ async def test_g2_end_to_end_from_bootstrap_without_v1_runtime(local_app, monkey
         thoth["personality_key"],
         thoth["runtime_version"],
     ) == ("Thoth", "chat", "thoth", "thoth", "v2")
+    # GUI v1: Genesis composition persists the reviewed default presentation.
+    assert [(c["type"], c["key"], c["default"]) for c in thoth["gui_components"]] == [
+        ("chat", "conversation", True)
+    ]
+    assert [(c["type"], c["default"]) for c in enki["gui_components"]] == [
+        ("form", True),
+        ("chat", False),
+    ]
     again = (await signal(s, ENKI, THOTH_SIGNAL, thoth_payload())).json()
     assert again["replayed"] is True and again["operation_id"] == body["operation_id"]
     assert await agents.count_documents({}) == 2

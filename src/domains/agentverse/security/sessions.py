@@ -19,6 +19,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from src.base.entities.user import User
 from src.base.events.v2.contracts import EventPermissionError
 from src.base.services.jwt_service import JWTService
 from src.domains.agentverse.agents.lifecycle.agent_principal_resolver import VerifiedAgentSession
@@ -71,6 +72,21 @@ class _Caller:
     fingerprint: str
     expires: float
     origin: str = "session"
+    # Verified signed claims, never populated from an operation payload. None is
+    # legacy/missing context and must not be treated as an empty membership set.
+    roles: tuple[str, ...] | None = None
+    scopes: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.roles is not None and (
+            type(self.roles) is not tuple
+            or any(not isinstance(role, str) or not role.strip() for role in self.roles)
+        ):
+            raise EventPermissionError("Malformed trusted role context")
+        if type(self.scopes) is not tuple or any(
+            not isinstance(scope, str) or not scope.strip() for scope in self.scopes
+        ):
+            raise EventPermissionError("Malformed trusted scope context")
 
 
 @dataclass
@@ -155,7 +171,21 @@ class RedisAgentSessionAuthority:
             raise EventPermissionError("Genesis token requires expiry")
         if not math.isfinite(expiry) or expiry <= self._clock():
             raise EventPermissionError("Genesis token expired")
-        return _Caller(*values, hashlib.sha256(token.encode()).hexdigest(), float(expiry))
+        roles = claims.get("roles", [])
+        scopes = claims.get("scp", "")
+        if (
+            not isinstance(roles, list)
+            or any(not isinstance(role, str) or not role.strip() for role in roles)
+            or not isinstance(scopes, str)
+        ):
+            raise EventPermissionError("Invalid signed resource requester claims")
+        return _Caller(
+            *values,
+            hashlib.sha256(token.encode()).hexdigest(),
+            float(expiry),
+            roles=tuple(roles),
+            scopes=tuple(scopes.split()),
+        )
 
     async def provision(
         self,
@@ -311,6 +341,8 @@ class RedisAgentSessionAuthority:
                 "session": caller.session,
                 "fingerprint": caller.fingerprint,
                 "expires": caller.expires,
+                "roles": caller.roles,
+                "scopes": caller.scopes,
             }
         )
         await self._eval("return redis.call('SET', KEYS[1], ARGV[1], 'EX', 30)", [raw], keys=[key])
@@ -332,7 +364,12 @@ return value
         )
         if not raw:
             raise EventPermissionError("WebSocket ticket expired or consumed")
-        caller = _Caller(**json.loads(raw))
+        data = json.loads(raw)
+        if "roles" in data and data["roles"] is not None:
+            data["roles"] = tuple(data["roles"])
+        if "scopes" in data:
+            data["scopes"] = tuple(data["scopes"])
+        caller = _Caller(**data)
         await self._human_record(caller)
         binding = _Binding(caller)
         marker = self._caller.set(binding)
@@ -354,6 +391,34 @@ return value
         ) or key.agent_id not in record["agents"]:
             raise EventPermissionError("Genesis execution session mismatch")
         return str(record.get("origin", "session"))
+
+    async def resource_requester(self, key: AgentInstanceKey) -> User:
+        """Use the active authenticated binding and the same durable membership fences.
+
+        Roles follow existing signed-token freshness: membership/role changes must
+        invalidate sessions. No positive cache or client-supplied enrichment exists.
+        Bootstrap is a separately pinned non-human identity with NO role privileges.
+        """
+        await self.check_execution_session(key)
+        binding = self._caller.get()
+        caller = binding.caller if binding is not None and binding.active else None
+        if caller is None or (caller.tenant, caller.user, caller.session) != (
+            key.tenant_id,
+            key.user_id,
+            key.session_id,
+        ):
+            raise EventPermissionError("Bound resource requester required")
+        await self._bound_record(caller)
+        if caller.origin == "bootstrap":
+            return User(id=caller.user, tenant_id=caller.tenant)
+        if caller.origin != "session" or caller.roles is None:
+            raise EventPermissionError("Verified resource membership context required")
+        return User(
+            id=caller.user,
+            tenant_id=caller.tenant,
+            roles=list(caller.roles),
+            scopes=list(caller.scopes),
+        )
 
     @asynccontextmanager
     async def bootstrap_lease(

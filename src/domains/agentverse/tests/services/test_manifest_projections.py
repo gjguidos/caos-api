@@ -30,6 +30,28 @@ def assert_denied(svc, kind, key, user=USER):
         svc.get_info_for_client(kind, key, user)
 
 
+def test_agent_tool_configuration_projection_is_requester_aware_and_metadata_only():
+    svc = catalog()
+    put(svc, "tool", "configurable", ui={"admin": {"renderer": "NeverImportThis", "fields": {
+        "limit": {"label": "Limit", "input": "number", "constraints": {"min": 1, "max": 10}, "component": {"secret": "SENTINEL"}},
+        "credential": {"label": "Credential", "input": "password", "default": "SENTINEL"},
+        "hidden": {"label": "Hidden", "input": "text", "hidden": True, "default": "SENTINEL"},
+    }}}, config={"secret": "SENTINEL"}, config_schema={"type": "object", "properties": {
+        "limit": {"type": "integer", "minimum": 1, "maximum": 10},
+        "secret": {"type": "string", "default": "SENTINEL", "writeOnly": True},
+    }})
+    raw = copy.deepcopy(svc.get_info("tool", "configurable").metadata)
+    projected = svc.get_info_for_client("tool", "configurable", USER).metadata
+    assert set(projected["ui"]["admin"]["fields"]) == {"limit"}
+    assert projected["ui"]["admin"]["fields"]["limit"]["constraints"] == {"min": 1, "max": 10}
+    assert "SENTINEL" not in json.dumps(projected)
+    assert "NeverImportThis" not in json.dumps(projected)
+    assert projected["agent_config_schema"]["properties"] == {"limit": {"type": "integer", "minimum": 1, "maximum": 10}}
+    assert svc.get_info("tool", "configurable").metadata == raw
+    put(svc, "tool", "other_tenant", ownership="tenant", tenant_id="other", ui=raw["ui"])
+    assert_denied(svc, "tool", "other_tenant")
+
+
 @pytest.fixture
 def production():
     # Import actual declarations/registrations; never instantiate providers or

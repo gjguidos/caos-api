@@ -59,6 +59,7 @@ from src.domains.agentverse.dependencies.genesis_local import (
 )
 from src.domains.agentverse.interfaces.api.v2.genesis_agents import router as agent_router
 from src.domains.agentverse.interfaces.api.v2.genesis_sessions import router as session_router
+from src.domains.agentverse.manuscripts.capability import SIGNALS as _MANUSCRIPT
 from src.domains.agentverse.personalities import (  # noqa: F401 - production registration
     empty_eva,
     enki,
@@ -66,6 +67,8 @@ from src.domains.agentverse.personalities import (  # noqa: F401 - production re
 )
 from src.domains.agentverse.registries.synaptic_registry import SynapticRegistry
 from src.domains.agentverse.runtime.instances_v2 import AgentInstanceKey
+
+MANUSCRIPT_SIGNALS = set(_MANUSCRIPT.values())
 
 
 class NoInference:
@@ -245,8 +248,18 @@ async def test_local_startup_endpoint_and_verified_operator_session(local_app):
             AgentInstanceKey(TENANT, OWNER, ENKI, s.session_id)
         )
         grants = s.av.utu_authority().grants_for(principal).invoke
-        # G2.1: Enki's only non-conversational grant is the Thoth creation contract.
-        assert grants == {"chat.context", "chat.response", THOTH_SIGNAL}
+        # G2.1: the Thoth creation contract; DRAFT-0.2A: the scoped proposal capability;
+        # MANUSCRIPT-0.1A: the six scoped Manuscript session signals.
+        assert (
+            grants
+            == {
+                "chat.context",
+                "chat.response",
+                THOTH_SIGNAL,
+                "agent.draft.propose",
+            }
+            | MANUSCRIPT_SIGNALS
+        )
         enki_client = s.av.synaptic_exchange().bind(principal)
         for signal in ("store.create", "store.create.provisioned", "data.validation", SIGNAL):
             with pytest.raises(EventPermissionError):
@@ -376,11 +389,16 @@ async def test_genesis_created_form_enki_converses_through_the_v2_runtime(local_
     assert s.av.instance_registry_v2().get(key) is not None
     async with s.sessions.authenticated(token):
         principal = await s.av.utu_authority().resolve_agent_principal(key)
-        assert s.av.utu_authority().grants_for(principal).invoke == {
-            "chat.context",
-            "chat.response",
-            THOTH_SIGNAL,
-        }
+        assert (
+            s.av.utu_authority().grants_for(principal).invoke
+            == {
+                "chat.context",
+                "chat.response",
+                THOTH_SIGNAL,
+                "agent.draft.propose",
+            }
+            | MANUSCRIPT_SIGNALS
+        )
     # Conversation creates no audit or Store evidence; Genesis evidence is unchanged.
     records = await s.av.caos_log_service().history(TENANT, created.json()["correlation_id"])
     assert len(records) == 4

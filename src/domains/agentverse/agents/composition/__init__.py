@@ -26,6 +26,7 @@ from src.domains.agentverse.agents.composition.models import (
 )
 from src.domains.agentverse.agents.conversational_composition_v2 import supports_v2_conversation
 from src.domains.agentverse.agents.factory import AgentFactory
+from src.domains.agentverse.entities.gui_components import default_gui_components
 from src.domains.agentverse.services.agent_service import AgentService
 from src.domains.agentverse.tools.validation_tool.models import (
     AgentCreationInput,
@@ -145,6 +146,18 @@ class AgentComposer:
             "rule_pack_ids": list(data.rule_pack_ids),
             "visibility": data.visibility,
             "whitelisted_groups": list(data.whitelisted_groups),
+            # Declared presentation, or the reviewed default for this composition.
+            "gui_components": [
+                component.model_dump(mode="json")
+                for component in (
+                    data.gui_components
+                    or default_gui_components(
+                        agent_type=data.type,
+                        role_name=data.role_name,
+                        runtime_version=policy.runtime_version,
+                    )
+                )
+            ],
         }
         return CompositionResult(
             composed=True,

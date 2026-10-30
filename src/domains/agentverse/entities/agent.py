@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
+from src.domains.agentverse.entities.gui_components import GuiComponent, check_components
 from src.domains.agentverse.tools.spec import AgentToolRef
 
 
@@ -52,3 +53,12 @@ class Agent(BaseModel):
         default_factory=list,
         description="Group names that may access this agent, e.g. ['team-alpha', 'team-beta']",
     )
+
+    # Declarative presentation (GUI contract v1); never authority. Empty for
+    # definitions created before v1, which clients resolve by their reviewed default.
+    gui_components: list[GuiComponent] = Field(default_factory=list)
+
+    @field_validator("gui_components")
+    @classmethod
+    def _gui_structure(cls, value: list[Any]) -> list[Any]:
+        return check_components(value)

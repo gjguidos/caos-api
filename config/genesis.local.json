@@ -38,7 +38,8 @@
       "agent_id": "00000000-0000-4000-8000-000000000003",
       "invoke": [
         "data.validation",
-        "store.create.provisioned"
+        "store.create.provisioned",
+        "store.create.approved"
       ]
     },
     {
@@ -47,7 +48,14 @@
       "invoke": [
         "chat.context",
         "chat.response",
-        "genesis.thoth.request"
+        "genesis.thoth.request",
+        "agent.draft.propose",
+        "manuscript.session.start",
+        "manuscript.session.status",
+        "manuscript.session.answer",
+        "manuscript.session.correct",
+        "manuscript.session.restart",
+        "manuscript.session.complete"
       ]
     },
     {
@@ -60,6 +68,22 @@
     }
   ],
   "trusted_lines": [],
+  "validation_gateways": [
+    {
+      "tenant_id": "caos-local",
+      "subject_id": "00000000-0000-4000-8000-000000000001",
+      "source_agent_id": "00000000-0000-4000-8000-000000000004",
+      "executor_id": "00000000-0000-4000-8000-000000000003"
+    }
+  ],
+  "creation_gateways": [
+    {
+      "tenant_id": "caos-local",
+      "subject_id": "00000000-0000-4000-8000-000000000001",
+      "source_agent_id": "00000000-0000-4000-8000-000000000004",
+      "executor_id": "00000000-0000-4000-8000-000000000003"
+    }
+  ],
   "system_citizens": [
     {
       "tenant_id": "caos-local",
@@ -106,8 +130,7 @@
       "initiator_id": "00000000-0000-4000-8000-000000000004",
       "executor_id": "00000000-0000-4000-8000-000000000003",
       "agent_id": "00000000-0000-4000-8000-000000000006",
-      "slot": "thoth",
-      "activation": "requester_session"
+      "slot": "thoth"
     }
   ],
   "provisioned": [

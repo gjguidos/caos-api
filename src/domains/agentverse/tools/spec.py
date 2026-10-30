@@ -5,34 +5,58 @@ from types import SimpleNamespace
 from typing import Any, Literal
 
 from pydantic import BaseModel as _BM
-from pydantic import Field, ValidationInfo, field_validator
+from pydantic import (
+    Field,
+    SerializerFunctionWrapHandler,
+    ValidationInfo,
+    field_validator,
+    model_serializer,
+)
 
 from src.domains.agentverse.entities.resource_exposure import ResourceExposure
 from src.domains.agentverse.utils.canonicalize import canonicalize
 
-_SIGNAL_PATTERN = re.compile(
-    r"[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+"
-)
+_SIGNAL_PATTERN = re.compile(r"[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+")
+
+
 class SynapticCapabilitySpec(_BM):
     """A synaptic capability exposed by an AOSA tool."""
 
     signal: str
     access: Literal["core", "granted", "system"] = "granted"
     trusted_lines: list[str] = Field(default_factory=list)
+    # Optional for historical declarations. Version is the capability's own version,
+    # never inferred from ToolSpec.version. Contract references are descriptive only.
+    version: str | None = Field(default=None, pattern=r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
+    provider: str | None = Field(
+        default=None, min_length=1, pattern=rf"^{_SIGNAL_PATTERN.pattern}$"
+    )
+    input_contract: str | None = Field(default=None, min_length=1)
+    output_contract: str | None = Field(default=None, min_length=1)
+
+    @model_serializer(mode="wrap")
+    def _serialize_optional_contracts(
+        self, handler: SerializerFunctionWrapHandler
+    ) -> dict[str, Any]:
+        result = handler(self)
+        # Keep historical declaration payloads unchanged, including nested dumps.
+        for field in ("version", "provider", "input_contract", "output_contract"):
+            if result.get(field) is None:
+                result.pop(field, None)
+        return result
 
     @field_validator("signal")
     @classmethod
     def _validate_signal(cls, value: str) -> str:
         if not _SIGNAL_PATTERN.fullmatch(value):
-            raise ValueError(
-                f"Invalid synaptic signal: {value!r}"
-            )
+            raise ValueError(f"Invalid synaptic signal: {value!r}")
         return value
 
+
 class SynapticToolSpec(_BM):
-    capabilities: list[SynapticCapabilitySpec] = Field(
-        default_factory=list
-    )
+    capabilities: list[SynapticCapabilitySpec] = Field(default_factory=list)
+
+
 class ToolOutputSpec(_BM):
     """A single typed output a tool declares it returns.
 
@@ -128,8 +152,16 @@ class ToolSpec(_BM):
         """
         meta = dict(self.metadata)
         fields = (
-            "scope", "exposure", "ui", "tags", "config", "outputs", "supports",
-            "synaptic", "tool_class", "source",
+            "scope",
+            "exposure",
+            "ui",
+            "tags",
+            "config",
+            "outputs",
+            "supports",
+            "synaptic",
+            "tool_class",
+            "source",
         )
         values = self.model_dump(mode="json", include=set(fields))
         for field in fields:

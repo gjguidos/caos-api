@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from src.base.authentication.permission import Permission
@@ -9,10 +11,13 @@ from src.base.entities.user import User
 from src.domains.agentverse.dependencies.get_agent_service import get_agent_service
 from src.domains.agentverse.dependencies.get_personality_service import get_personality_service
 from src.domains.agentverse.dependencies.get_registry_service import get_registry_service
+from src.domains.agentverse.entities.agent import Agent
+from src.domains.agentverse.entities.agent_creation_presentation import agent_creation_presentation
 from src.domains.agentverse.entities.agent_soul_protocol_parts.agent_soul_protocol import (
     AgentSoulProtocol,
 )
 from src.domains.agentverse.entities.agent_update_request import AgentUpdateRequest
+from src.domains.agentverse.entities.gui_components import effective_gui_components
 from src.domains.agentverse.logging.logger_v1 import (
     AGENTVERSE_LOGGER,
     LogDomain,
@@ -29,6 +34,28 @@ def diff_dump(soul: AgentSoulProtocol) -> dict:
     raw = soul.model_dump(exclude_none=True)
     base = baseline.model_dump(exclude_none=True)
     return {k: v for k, v in raw.items() if v != base.get(k)}
+
+
+def agent_descriptor(agent: Agent) -> dict[str, Any]:
+    """The existing Agent response plus its effective GUI composition (read-only).
+
+    ``effective_gui_components`` is the persisted declaration or the reviewed default
+    for definitions created before GUI contract v1 (empty for V1 agents, which keep
+    their type-based workspaces). Presentation only: it confers no execution authority.
+    """
+    descriptor = agent.model_dump(mode="json")
+    descriptor["effective_gui_components"] = [
+        component.model_dump(mode="json") for component in effective_gui_components(descriptor)
+    ]
+    descriptor["form_presentations"] = {
+        component["key"]: agent_creation_presentation(
+            component["config"]["source"]["contract"],
+            component["config"]["source"]["schema_version"],
+        )
+        for component in descriptor["effective_gui_components"]
+        if component["type"] == "form" and component["config"]["source"]["kind"] == "contract"
+    }
+    return descriptor
 
 
 @router.get("/api/v1/agents/list")
@@ -48,7 +75,7 @@ async def find_all_agents(
         },
     )
 
-    results = await agent_service.list_agents(user)
+    results = [agent_descriptor(agent) for agent in await agent_service.list_agents(user)]
 
     AGENTVERSE_LOGGER.info(
         LogDomain.COMMAND_ROOM,
@@ -80,7 +107,7 @@ async def find_agent(
         },
     )
 
-    results = await agent_service.get_agent(agent_id, user)
+    results = agent_descriptor(await agent_service.get_agent(agent_id, user))
 
     AGENTVERSE_LOGGER.info(
         LogDomain.COMMAND_ROOM,

@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from copy import deepcopy
+from dataclasses import replace
 from typing import Any
 
 from src.base.events.v2.contracts import EventPermissionError
@@ -18,6 +19,8 @@ from src.domains.agentverse.ncsc.models import (
 from src.domains.agentverse.registries.synaptic_registry import (
     SynapticRegistry,
 )
+from src.domains.agentverse.security.capability_scope import CapabilityBinding
+from src.domains.agentverse.security.revocation import ExecutionPermit
 
 
 class ExecutionGate:
@@ -84,6 +87,7 @@ class AuthorizedSynapticClient:
         payload: dict[str, Any],
         *,
         target: str | None = None,
+        version: str | None = None,
         correlation_id: str | None = None,
         causation_id: str | None = None,
     ) -> Any:
@@ -92,6 +96,7 @@ class AuthorizedSynapticClient:
             signal=signal,
             payload=payload,
             target=target,
+            version=version,
             correlation_id=correlation_id,
             causation_id=causation_id,
         )
@@ -115,10 +120,23 @@ class SynapticExchange:
     ) -> AuthorizedSynapticClient:
         """Issue an agent client from trusted runtime code only."""
 
+        permit = getattr(principal, "permit", None)
+        chain = permit.binding_chain if isinstance(permit, ExecutionPermit) and permit.scope else ()
+        if (
+            isinstance(permit, ExecutionPermit)
+            and permit.scope
+            and (
+                principal.agent_id != permit.key.agent_id
+                or principal.tenant_id != permit.key.tenant_id
+            )
+        ):
+            raise EventPermissionError("Scoped permit principal mismatch")
         context = SynapticExecutionContext(
             principal_id=principal.agent_id,
             tenant_id=principal.tenant_id,
-            permit=getattr(principal, "permit", None),
+            permit=permit,
+            active_signal=chain[-1].signal if chain else None,
+            invocation_chain=tuple(binding.signal for binding in chain),
             gate=ExecutionGate(),
         )
         return AuthorizedSynapticClient(self, context)
@@ -130,6 +148,7 @@ class SynapticExchange:
         signal: str,
         payload: dict[str, Any],
         target: str | None = None,
+        version: str | None = None,
         correlation_id: str | None = None,
         causation_id: str | None = None,
     ) -> Any:
@@ -140,7 +159,30 @@ class SynapticExchange:
             if not isinstance(payload, dict):
                 raise TypeError("Synaptic payload must be a dictionary")
 
-            binding = self._registry.resolve(signal)
+            permit = context.permit
+            scope = permit.scope if isinstance(permit, ExecutionPermit) else None
+            if scope:
+                if context.invocation_chain != tuple(b.signal for b in permit.binding_chain):
+                    raise EventPermissionError("Scoped invocation lineage mismatch")
+                choices = [b for b in scope.bindings if b.signal == signal]
+                if not context.invocation_chain:
+                    choices = [b for b in choices if b == scope.entry]
+                if version is None and len(choices) == 1:
+                    version = choices[0].version
+                if not any(b.version == version and target in (None, b.provider) for b in choices):
+                    raise EventPermissionError("Invocation exceeds capability scope")
+            # A missing binding or a different registered version raises KeyError:
+            # a pinned request is never redirected to another provider version.
+            binding = self._registry.resolve(signal, version)
+            if version is not None and binding.version != version:
+                raise EventPermissionError("Resolved provider version mismatch")
+            identity = (
+                CapabilityBinding(binding.signal, binding.provider, binding.version)
+                if scope
+                else None
+            )
+            if scope and identity not in choices:
+                raise EventPermissionError("Resolved provider exceeds capability scope")
 
             destination = binding.provider if target is None else target
 
@@ -154,6 +196,8 @@ class SynapticExchange:
                 "target": destination,
                 "tenant_id": context.tenant_id,
                 "payload": deepcopy(payload),
+                "provider_version": binding.version,
+                "entry_operation": scope.operation if scope else None,
                 "causation_id": (
                     context.causation_id if context.active_signal is not None else causation_id
                 ),
@@ -176,7 +220,9 @@ class SynapticExchange:
                 correlation_id=synapse.correlation_id,
                 causation_id=synapse.synapse_id,
                 invocation_chain=(*context.invocation_chain, signal),
-                permit=context.permit,
+                permit=replace(permit, binding_chain=(*permit.binding_chain, identity))
+                if scope
+                else permit,
                 gate=context.gate,
             )
 

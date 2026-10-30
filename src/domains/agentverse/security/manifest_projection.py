@@ -12,6 +12,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.domains.agentverse.tools.config_contract import config_contract
+
 Scalar = str | int | float | bool | None
 
 
@@ -199,6 +201,7 @@ class UIConfig(ClientDTO):
 
 
 class UI(ClientDTO):
+    admin: AdminUI | None = None
     icon: str | None = None
     category: str | None = None
     display_hints: list[str] = Field(default_factory=list)
@@ -235,6 +238,8 @@ class Supports(ClientDTO):
 
 
 class ToolProjection(Display):
+    required_rulepacks: bool = False
+    min_rulepacks: int | None = None
     capabilities: list[str] = Field(default_factory=list)
     tool_class: str | None = None
     outputs: list[Output] = Field(default_factory=list)
@@ -352,6 +357,10 @@ class InputConstraints(ClientDTO):
     max_size_bytes: int | None = None
     min: int | float | None = None
     max: int | float | None = None
+
+
+class AdminUI(ClientDTO):
+    fields: dict[str, Input] = Field(default_factory=dict)
 
 
 class WorkflowProjection(Display):
@@ -490,7 +499,45 @@ def project_metadata(kind: str, metadata: dict[str, Any], readable: Callable[[st
                 and cancel.get("path_params") == {"run_id": {"from_state": "operation.run_id"}})
             binding["actions"] = {"cancel": cancel} if valid_cancel else {}
             config["operation_binding"] = binding
-        out["ui"] = dump(UI.model_validate({**raw_ui, "config": config, "components": visible}))
+        # Agent-specific configuration uses the Tool's own admin declarations,
+        # not its invocation controls. Never expose raw provider config or class paths.
+        admin = raw_ui.get("admin") or {}
+        admin_fields = {}
+        raw_config_schema = metadata.get("config_schema")
+        config_model = config_contract(raw_config_schema) if admin else None
+        if config_model is not None:
+            raw_config_schema = config_model.model_json_schema()
+        safe_config_properties = public_schema(raw_config_schema).get("properties")
+        if isinstance(admin, dict) and inline_allowed(
+            {k: v for k, v in admin.items() if k != "fields"}
+        ):
+            for key, field in (admin.get("fields") or {}).items():
+                if (
+                    isinstance(field, dict)
+                    and key not in REFERENCE_FIELDS
+                    and not key.startswith("_")
+                    and not field.get("hidden")
+                    and not field.get("writeOnly")
+                    and field.get("input") != "password"
+                    and (safe_config_properties is None or key in safe_config_properties)
+                    and inline_allowed(field)
+                    and dependencies_valid(field)
+                ):
+                    admin_fields[key] = dump(
+                        Input.model_validate(
+                            {**field, "key": key, "label": field.get("label", key)}
+                        )
+                    )
+        out["ui"] = dump(
+            UI.model_validate(
+                {
+                    **raw_ui,
+                    "admin": {"fields": admin_fields},
+                    "config": config,
+                    "components": visible,
+                }
+            )
+        )
         chat = out["ui"].get("config", {}).get("chat_input") or {}
         if chat.get("flag"):
             public_fields |= {chat["flag"].removeprefix("--")}
@@ -498,6 +545,13 @@ def project_metadata(kind: str, metadata: dict[str, Any], readable: Callable[[st
         for key in ("parameters_schema", "config_schema"):
             if isinstance(metadata.get(key), dict):
                 out[key] = public_schema(metadata[key], fields=public_fields)
+        # Only explicitly presented Agent configuration knobs may reveal their
+        # Tool-owned schema. Never serialize Python paths, provider defaults or
+        # invocation schemas as a substitute for Agent configuration.
+        if admin_fields:
+            out["agent_config_schema"] = public_schema(
+                raw_config_schema, fields=frozenset(admin_fields)
+            )
     elif kind in ("role", "agent"):
         if kind == "role":
             caps = dict(metadata.get("capabilities") or {})
@@ -522,6 +576,7 @@ def project_metadata(kind: str, metadata: dict[str, Any], readable: Callable[[st
 
 
 Input.model_rebuild()
+UI.model_rebuild()
 
 
 def project_authoring_workflow(raw: dict[str, Any]) -> dict[str, Any]:

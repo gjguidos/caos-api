@@ -69,6 +69,8 @@ from src.domains.agentverse.ncsc.cpbx import AuthorizedSynapticClient
 from src.domains.agentverse.operations.admission import permit_provenance
 from src.domains.agentverse.security.revocation import ExecutionPermit
 from src.domains.agentverse.tools.store_tool.spec import (
+    STORE_CREATE_APPROVED_SIGNAL,
+    STORE_CREATE_APPROVED_VERSION,
     STORE_CREATE_PROVISIONED_SIGNAL,
     STORE_CREATE_PROVISIONED_VERSION,
 )
@@ -99,17 +101,19 @@ _MAX_CODES = 64
 def genesis_operation_id(permit: ExecutionPermit, request: GenesisProvisionRequest) -> UUID:
     """Same verified identity + same slot + same creation input = same operation."""
     key = permit.key
+    identity: dict[str, Any] = {
+        "kind": OPERATION_KIND,
+        "tenant_id": key.tenant_id,
+        "principal_id": key.agent_id,
+        "subject_id": key.user_id,
+        "slot": request.slot,
+        "creation": request.creation,
+    }
+    if request.approved is not None:
+        # Slot operation IDs are unchanged; an approval is its own operation identity.
+        identity["approved"] = request.approved.model_dump()
     try:
-        digest = sha256_hex(
-            {
-                "kind": OPERATION_KIND,
-                "tenant_id": key.tenant_id,
-                "principal_id": key.agent_id,
-                "subject_id": key.user_id,
-                "slot": request.slot,
-                "creation": request.creation,
-            }
-        )
+        digest = sha256_hex(identity)
     except (TypeError, ValueError) as exc:
         raise ValueError("Genesis creation input must be plain JSON") from exc
     return UUID(digest[:32])
@@ -137,8 +141,14 @@ class GenesisProvisioner:
         self._owner_id = f"genesis:{uuid4()}"
 
     async def provision(
-        self, client: AuthorizedSynapticClient, request: GenesisProvisionRequest
+        self,
+        client: AuthorizedSynapticClient,
+        request: GenesisProvisionRequest,
+        *,
+        store_client: AuthorizedSynapticClient | None = None,
     ) -> GenesisProvisionResult:
+        """``store_client`` (approved creations only) is a separately scoped client of
+        the same verified Genesis identity; validation never shares its permit."""
         if not isinstance(client, AuthorizedSynapticClient):
             raise EventPermissionError("Genesis requires a CPBX-issued client")
         permit = client.execution_permit
@@ -147,6 +157,18 @@ class GenesisProvisioner:
         # Live authority before any operation state is created or read.
         await self._authority.check_permit(permit)
         request = GenesisProvisionRequest.model_validate(request)
+        if (request.approved is not None) != (store_client is not None):
+            raise EventPermissionError("Approved creation requires its own scoped Store client")
+        if store_client is not None:
+            store_permit = store_client.execution_permit
+            if (
+                not isinstance(store_client, AuthorizedSynapticClient)
+                or not isinstance(store_permit, ExecutionPermit)
+                or (store_permit.key, store_permit.versions, store_permit.origin)
+                != (permit.key, permit.versions, permit.origin)
+            ):
+                raise EventPermissionError("Store client must share the verified identity")
+            await self._authority.check_permit(store_permit)
         operation_id = genesis_operation_id(permit, request)
 
         record = await self._open(operation_id)
@@ -158,7 +180,26 @@ class GenesisProvisioner:
         elif state in {OperationState.RUNNING, OperationState.CANCEL_REQUESTED}:
             raise GenesisOperationInProgress(operation_id, interrupted=self._expired(record))
         record = await self._activate(record)
-        return await _Attempt(self, record, client, permit, request).run()
+        return await _Attempt(self, record, client, permit, request, store_client).run()
+
+    async def quiescent(self, operation_id: UUID) -> bool:
+        """True when no attempt of the operation can still execute.
+
+        An expired attempt is first reconciled to retry-pending (never to success); a
+        live lease, or losing that race, means an attempt may still act.
+        """
+        try:
+            record = await self._operations.inspect(operation_id)
+        except LookupError:
+            return True
+        state = record.snapshot.state
+        if state == OperationState.RUNNING and self._expired(record):
+            try:
+                await self._reconcile(record)
+            except GenesisOperationInProgress:
+                return False
+            return True
+        return state not in {OperationState.RUNNING, OperationState.CANCEL_REQUESTED}
 
     # ------------------------------------------------------------------
     # Operation lifecycle (OPS V2 managed aggregate)
@@ -301,8 +342,10 @@ class _Attempt:
         client: AuthorizedSynapticClient,
         permit: ExecutionPermit,
         request: GenesisProvisionRequest,
+        store_client: AuthorizedSynapticClient | None = None,
     ) -> None:
         self._owner = owner
+        self._store_client = store_client or client
         self._record = record
         self._client = client
         self._permit = permit
@@ -387,22 +430,38 @@ class _Attempt:
                 "composition", "failed" if transient else "rejected", codes, retry=transient
             )
 
-        # 6-7. Policy-pinned Store write through CPBX, then its confirmed outcome.
-        envelope = await self._client.request(
-            STORE_CREATE_PROVISIONED_SIGNAL,
-            {"resource_type": "agent", "slot": slot, "payload": composition.candidate},
+        # 6-7. Policy-pinned or approved Store write through CPBX, then its outcome.
+        approved = self._request.approved
+        if approved is None:
+            store_target = (STORE_CREATE_PROVISIONED_SIGNAL, STORE_CREATE_PROVISIONED_VERSION)
+            store_payload = {
+                "resource_type": "agent",
+                "slot": slot,
+                "payload": composition.candidate,
+            }
+        else:
+            store_target = (STORE_CREATE_APPROVED_SIGNAL, STORE_CREATE_APPROVED_VERSION)
+            store_payload = {
+                "resource_type": "agent",
+                **approved.model_dump(),
+                "payload": composition.candidate,
+            }
+        envelope = await self._store_client.request(
+            store_target[0],
+            store_payload,
+            version=store_target[1] if approved is not None else None,
             correlation_id=self._correlation_id,
             causation_id=composed.event_id,
         )
         if not isinstance(envelope, dict) or not isinstance(envelope.get("success"), bool):
-            raise TypeError("store.create.provisioned returned no result")
+            raise TypeError(f"{store_target[0]} returned no result")
         if not envelope["success"]:
             meta = envelope.get("meta") or {}
             code, retryable = str(meta.get("code") or "STORE_ERROR"), meta.get("retryable") is True
             await self._audit(
                 "genesis.store.failed",
                 outcome="failed" if retryable else "rejected",
-                target=(STORE_CREATE_PROVISIONED_SIGNAL, STORE_CREATE_PROVISIONED_VERSION),
+                target=store_target,
                 causation_id=composed.event_id,
                 metadata={"resource_type": "agent", "code": code, "retryable": retryable},
             )
@@ -413,7 +472,7 @@ class _Attempt:
         evidence = await self._audit(
             "genesis.store.completed",
             outcome="succeeded",
-            target=(STORE_CREATE_PROVISIONED_SIGNAL, STORE_CREATE_PROVISIONED_VERSION),
+            target=store_target,
             causation_id=composed.event_id,
             resource_id=stored["resource_id"],
             metadata={
@@ -446,7 +505,7 @@ class _Attempt:
         resource_id: str | None = None,
     ) -> CAOSLogRecord:
         # Successes are one fact per operation; rejections/failures one per attempt.
-        step = self._request.slot
+        step = self._request.step
         if outcome != "succeeded":
             step = f"{step}:attempt-{self._attempt.attempt_number}"
         event = LogEvent(

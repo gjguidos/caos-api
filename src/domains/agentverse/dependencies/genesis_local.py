@@ -33,6 +33,9 @@ ENKI_HANDOFF = GenesisHandoff(
 
 _CHAT_GRANTS = (frozenset({"chat.context"}), frozenset({"chat.context", "chat.response"}))
 _GENESIS_GRANTS = frozenset({"data.validation", "store.create.provisioned"})
+# G3.4 governed manual creation: store.create.approved is executable only under the
+# reviewed creation scope and writes only an effective human approval's candidate.
+_GENESIS_CREATION_GRANTS = _GENESIS_GRANTS | {"store.create.approved"}
 ENKI_PROVISION = ProvisionedIdentity(
     slot="enki",
     resource_type="agent",
@@ -53,7 +56,8 @@ THOTH_HANDOFF = GenesisHandoff(
     executor_id=GENESIS,
     agent_id=THOTH,
     slot="thoth",
-    activation="requester_session",
+    # Genesis owns creation; Khepri owns activation. Thoth persists sleeping and is
+    # activated only by its own, separately authorized activation request (DEV-0.2).
 )
 THOTH_PROVISION = ProvisionedIdentity(
     slot="thoth",
@@ -73,6 +77,15 @@ THOTH_PROVISION = ProvisionedIdentity(
 _LOCAL = frozenset({(TENANT, GENESIS), (TENANT, ENKI), (TENANT, JOSHUA)})
 _LOCAL_G21 = _LOCAL | {(TENANT, THOTH)}
 _ENKI_REQUESTER_GRANTS = frozenset({"chat.context", "chat.response", THOTH_SIGNAL})
+# DRAFT-0.2A (approved): Enki may submit proposals to its own human's drafts, only
+# under the agent.draft.propose scope. No other Agent or System Citizen holds it.
+_ENKI_PROPOSER_GRANTS = _ENKI_REQUESTER_GRANTS | {"agent.draft.propose"}
+# MANUSCRIPT-0.1A (approved): Enki's six deterministic Manuscript session signals, each
+# executable only under its own scope. No other Agent or System Citizen holds them.
+_ENKI_MANUSCRIPT_GRANTS = _ENKI_PROPOSER_GRANTS | {
+    f"manuscript.session.{op}"
+    for op in ("start", "status", "answer", "correct", "restart", "complete")
+}
 # Deterministic System Citizens: resolved from trusted policy, never coll_agents.
 CITIZENS = {
     (TENANT, GENESIS): SystemCitizen(TENANT, GENESIS, "Genesis"),
@@ -105,10 +118,12 @@ async def initialize_local(container: Container) -> None:
     if policy._trusted_lines:
         raise ValueError("Local Genesis policy allows no trusted lines")
     allowed = {
-        GENESIS: (_GENESIS_GRANTS,),
+        GENESIS: (_GENESIS_GRANTS, _GENESIS_CREATION_GRANTS),
         JOSHUA: (frozenset({SIGNAL}),),
         # Enki's only non-conversational grant is the Thoth creation contract.
-        ENKI: (_ENKI_REQUESTER_GRANTS,) if recursive else _CHAT_GRANTS,
+        ENKI: (_ENKI_REQUESTER_GRANTS, _ENKI_PROPOSER_GRANTS, _ENKI_MANUSCRIPT_GRANTS)
+        if recursive
+        else _CHAT_GRANTS,
         THOTH: (frozenset({"chat.context", "chat.response"}),),
     }
     for _, agent in scopes:

@@ -142,6 +142,48 @@ class GenesisReadinessMetadata(_Frozen):
     code: IssueCode | None = None
 
 
+class AgentCreationReviewMetadata(_Frozen):
+    """A human decision on an exact reviewed draft; never creation or activation authority."""
+
+    event_version: Literal[1]
+    approval_id: Identifier
+    review_digest: Digest
+    normalized_digest: Digest
+    source_agent_id: Identifier
+
+
+class AgentCreationMetadata(_Frozen):
+    """Governed manual creation of one approved Agent (G3.4). Identifiers and digests
+    only; the reviewed snapshot and credentials are never audit metadata."""
+
+    event_version: Literal[1]
+    creation_id: Identifier
+    approval_id: Identifier
+    review_digest: Digest
+    source_agent_id: Identifier
+    target_agent_id: Identifier
+    store_request_digest: Digest | None = None
+    created: StrictBool | None = None
+
+
+class AgentDraftProposalDecisionMetadata(_Frozen):
+    """A human decision on one draft proposal (DRAFT-0.2A). Identifiers, revisions,
+    field names and fingerprints only; never draft content, rationale or prompts."""
+
+    event_version: Literal[1]
+    proposal_id: Identifier
+    draft_id: Identifier
+    source_agent_id: Identifier
+    proposer_agent_id: Identifier
+    base_revision: Annotated[int, Field(strict=True, ge=1)]
+    resulting_revision: Annotated[int, Field(strict=True, ge=1)] | None = None
+    accepted_fields: Annotated[list[Slot], Field(max_length=16)]
+    rejected_fields: Annotated[list[Slot], Field(max_length=16)]
+    proposal_digest: Digest
+    decision_digest: Digest
+    content_digest: Digest | None = None
+
+
 Outcome = Literal["succeeded", "failed", "rejected"]
 
 
@@ -174,6 +216,24 @@ EVENT_CATALOG: dict[str, _EventSpec] = {
     "genesis.readiness.completed": _EventSpec(
         metadata=GenesisReadinessMetadata, outcomes=frozenset({"succeeded", "failed"})
     ),
+    "agent.creation_review.approved": _EventSpec(
+        metadata=AgentCreationReviewMetadata, outcomes=frozenset({"succeeded"})
+    ),
+    "agent.creation_review.revoked": _EventSpec(
+        metadata=AgentCreationReviewMetadata, outcomes=frozenset({"succeeded"})
+    ),
+    "agent.creation.authorized": _EventSpec(
+        metadata=AgentCreationMetadata, outcomes=frozenset({"succeeded"})
+    ),
+    "agent.creation.completed": _EventSpec(
+        metadata=AgentCreationMetadata, outcomes=frozenset({"succeeded"})
+    ),
+    "agent.draft.proposal.accepted": _EventSpec(
+        metadata=AgentDraftProposalDecisionMetadata, outcomes=frozenset({"succeeded"})
+    ),
+    "agent.draft.proposal.rejected": _EventSpec(
+        metadata=AgentDraftProposalDecisionMetadata, outcomes=frozenset({"succeeded"})
+    ),
 }
 EventType = Literal[
     "genesis.initiation.authorized",
@@ -183,6 +243,12 @@ EventType = Literal[
     "genesis.store.failed",
     "genesis.activation.completed",
     "genesis.readiness.completed",
+    "agent.creation_review.approved",
+    "agent.creation_review.revoked",
+    "agent.creation.authorized",
+    "agent.creation.completed",
+    "agent.draft.proposal.accepted",
+    "agent.draft.proposal.rejected",
 ]
 
 

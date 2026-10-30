@@ -32,6 +32,7 @@ from src.domains.agentverse.ncsc.models import Synapse, SynapticGrants
 from src.domains.agentverse.security.revocation import policy_version
 from src.domains.agentverse.security.utu import UTUAuthority
 from src.domains.agentverse.tests.agents import test_genesis_provisioner as genesis
+from src.base.entities.user import User
 
 JOSHUA = "joshua"
 HANDOFF = GenesisHandoff(
@@ -63,6 +64,7 @@ async def environment(*, operations=None):
     sessions = SimpleNamespace(
         get_session=AsyncMock(return_value=session),
         bind_revocation_handler=Mock(),
+        resource_requester=AsyncMock(side_effect=lambda key: User(id=key.user_id, tenant_id=key.tenant_id)),
     )
     # JOSHUA and Genesis are deterministic System Citizens: no coll_agents definitions.
     definitions: dict[str, dict] = {}

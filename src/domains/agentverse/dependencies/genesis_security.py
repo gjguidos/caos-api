@@ -13,6 +13,7 @@ from src.domains.agentverse.agents.lifecycle.agent_principal_resolver import (
     SystemCitizen,
 )
 from src.domains.agentverse.ncsc.authorization import SynapticAuthorization
+from src.domains.agentverse.security.validation_gateway import ValidationGatewayBinding
 from src.domains.agentverse.tools.store_tool.models import ProvisionedIdentity
 
 
@@ -31,3 +32,6 @@ class GenesisSecurityBindings:
     citizens: Mapping[tuple[str, str], SystemCitizen] = field(default_factory=dict)
     # Policy-scoped startup leases; each may only initiate its pinned handoff.
     bootstrap: tuple[GenesisBootstrap, ...] = ()
+    validation_gateways: tuple[ValidationGatewayBinding, ...] = ()
+    # Reviewed (tenant, user, source Agent) → executor bindings for governed creation.
+    creation_gateways: tuple[ValidationGatewayBinding, ...] = ()
