@@ -104,9 +104,12 @@ Answer codes: `field.unknown`, `field.not_in_stage`, `stage.completed`, `answer.
 `answer.duplicate`, `answer.too_many`, `reference.unavailable` (unknown and unreadable
 are indistinguishable).
 
-**Catalog** (`catalog.py`): `RegistryManuscriptCatalog` reuses the `data.validation` read
-policy (`RegistryService.get_info_for_client`, `WorkflowService.get_workflow`) for the
-requester. A read decision only; CATALOG-0.1 may replace the port.
+**Catalog** (`catalog.py`): since CATALOG-0.1 (uncommitted) the port is
+`GovernedManuscriptCatalog`, delegating to the governed `ResourceCatalog`
+([Catalog](CATALOG.md) §5), which reuses the same `data.validation` read policy
+(`RegistryService.get_info_for_client`, `WorkflowService.get_workflow`) for the human
+requester. `RegistryManuscriptCatalog` remains a constructor-compatible subclass. A read
+decision only; definitions, fingerprints and session pins are unchanged.
 
 ## 5. `agent_creation_interview@1.0.0` (published)
 

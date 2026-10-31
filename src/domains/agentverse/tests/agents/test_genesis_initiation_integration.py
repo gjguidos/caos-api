@@ -257,6 +257,8 @@ async def test_local_startup_endpoint_and_verified_operator_session(local_app):
                 "chat.response",
                 THOTH_SIGNAL,
                 "agent.draft.propose",
+                "catalog.project",  # CATALOG-0.1A: read-only, scoped.
+                "cognitive.interpret",  # REASONING-0.1B: advisory, scoped.
             }
             | MANUSCRIPT_SIGNALS
         )
@@ -396,6 +398,8 @@ async def test_genesis_created_form_enki_converses_through_the_v2_runtime(local_
                 "chat.response",
                 THOTH_SIGNAL,
                 "agent.draft.propose",
+                "catalog.project",  # CATALOG-0.1A: read-only, scoped.
+                "cognitive.interpret",  # REASONING-0.1B: advisory, scoped.
             }
             | MANUSCRIPT_SIGNALS
         )

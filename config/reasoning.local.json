@@ -1,0 +1,13 @@
+{
+  "contract": "caos.reasoning.config",
+  "schema_version": 1,
+  "revision": 1,
+  "tasks": {
+    "manuscript.answer_extraction@1.0.0": {
+      "fingerprint": "06354ea745eece00466bef7f5a86841765a00fe24d50604727fa2785cd049b9f",
+      "model_class": "structured_extraction",
+      "allowed_models": ["openai-gpt-6-astra"],
+      "default_model": "openai-gpt-6-astra"
+    }
+  }
+}

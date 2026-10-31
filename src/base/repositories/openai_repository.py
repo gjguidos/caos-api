@@ -1,6 +1,8 @@
 import logging
+from typing import Any
 
 from src.base.infrastructure.ai.azure_openai_client import AzureOpenAIClient
+from src.base.infrastructure.ai.structured_output import StructuredOutputUnsupported
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +45,38 @@ class OpenAIRepository:
             )
         except Exception as e:
             logger.error("Error retrieving async chat response: %s", e)
+            raise
+
+    # ---------------- Structured output (REASONING-0.1A) ----------------
+    @property
+    def supports_structured_output(self) -> bool:
+        """Only an explicit client capability counts; never inferred or emulated."""
+        return getattr(self.client, "supports_structured_output", False) is True
+
+    async def get_structured_response_async(
+        self,
+        input: str | list[dict[str, Any]],
+        instructions: str,
+        *,
+        schema_name: str,
+        json_schema: dict[str, Any],
+        max_output_tokens: int,
+        model: str | None = None,
+    ) -> str:
+        if not self.supports_structured_output:
+            raise StructuredOutputUnsupported("Backend lacks structured output")
+        try:
+            return await self.client.get_structured_response_async(
+                input,
+                instructions,
+                schema_name=schema_name,
+                json_schema=json_schema,
+                max_output_tokens=max_output_tokens,
+                model=model,
+            )
+        except Exception as e:
+            # Type only: provider bodies may echo prompts or user content.
+            logger.error("Structured response failed: %s", type(e).__name__)
             raise
 
     # ---------------- Audio ----------------

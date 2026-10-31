@@ -98,6 +98,12 @@ Communication is part of what an agent *is*, not an optional tool the user happe
   invocation helper. Its global/public descriptor exposes only safe configuration and
   description. Existing Enki-only execution grants/policy remain unchanged. See
   [Manuscripts §9](../../MANUSCRIPTS.md).
+- **REASONING-0.1C (uncommitted):** optional cognitive `reasoning@1.0.0` is registered in
+  `ToolRegistry`, separately from the Reasoning Task Registry and the
+  `cognitive.interpret@1.0.0` binding. The façade denies V1 execution, owns no engine and
+  delegates to the existing governed caller; strict configuration lists exact published
+  tasks and can only narrow them. Execution stays Enki-only. See
+  [REASONING-0.1 §14](../../REASONING_0_1_ARCHITECTURE.md).
 
 ### 2.3 Partial
 
@@ -192,7 +198,7 @@ replay. Existing persisted definitions and historical evidence are not patched.
 | Decision | Mechanism (implemented) | Grants invocation? |
 | --- | --- | --- |
 | **Registration** | `ToolRegistry`, `SynapticRegistry`, `WorkflowRegistry` | No |
-| **Discovery** | Client catalog projections + `can_access_resource(…, "DISCOVER")` | No |
+| **Discovery** | Client catalog projections + `can_access_resource(…, "DISCOVER")`; CATALOG-0.1 `ResourceCatalog` (uncommitted, in-process; `execution_authorization` is always `not_evaluated`, see [Catalog](../../CATALOG.md)) | No |
 | **Exposure** | `exposure` / `classify_resource` | No |
 | **Attachment** | `Agent.tools`, `Agent.workflows` | No (V1 attachment scopes V1 tool use only) |
 | **Invocation authorization** | UTU permit + `SynapticAuthorization` root grant / trusted line, enforced by CPBX on every call | Yes, per principal, tenant and signal |

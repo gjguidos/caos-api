@@ -51,7 +51,10 @@ class _Issues:
         return bool(self._items)
 
     def sorted(self) -> list[ValidationIssue]:
-        return sorted(self._items, key=lambda issue: (issue.path, issue.code, issue.message))
+        # Identical findings collapse, so repetition never reveals how many hidden
+        # resources produced them (VALIDATION-SEC-0.1).
+        unique = {(i.path, i.code, i.message): i for i in self._items}
+        return [unique[key] for key in sorted(unique)]
 
 
 def _path(loc: tuple[Any, ...] | list[Any]) -> str:
@@ -152,7 +155,9 @@ class AgentDefinitionValidator:
         workflow_tools = self._workflow_tools(workflows, issues)
         self._gui(data, type_item, role_item, workflows, issues)
         if not issues:
-            self._composition(type_item, role_item, tools, workflow_tools, rule_packs, issues)
+            self._composition(
+                type_item, role_item, tools, workflow_tools, rule_packs, issues, requester
+            )
         if issues or type_item is None or role_item is None or personality_item is None:
             return ValidationResult(valid=False, resource_type="agent", issues=issues.sorted())
 
@@ -435,7 +440,13 @@ class AgentDefinitionValidator:
         workflow_tools: Mapping[str, RegistryItem],
         rule_packs: list[RegistryItem],
         issues: _Issues,
+        requester: User,
     ) -> None:
+        """Authoritative composition checks over raw registry metadata.
+
+        Requester-facing messages name a resource only if the requester may READ it
+        (VALIDATION-SEC-0.1); codes, paths and validity never depend on that projection.
+        """
         if agent_type is None or role is None:
             return
         type_meta, role_meta = agent_type.metadata or {}, role.metadata or {}
@@ -453,7 +464,9 @@ class AgentDefinitionValidator:
             issues.add(
                 "tools",
                 "composition.required_tool_missing",
-                f"Role requires tool '{key}'",
+                f"Role requires tool '{key}'"
+                if self._readable("tool", key, requester)
+                else "Role requires a tool that is unavailable to this requester",
             )
 
         packs = len(rule_packs)
@@ -463,8 +476,19 @@ class AgentDefinitionValidator:
                 issues.add(
                     "rule_pack_ids",
                     "composition.rulepacks_insufficient",
-                    f"Tool '{item.key}' requires at least {minimum} rule pack(s)",
+                    f"Tool '{item.key}' requires at least {minimum} rule pack(s)"
+                    if self._readable("tool", item.key, requester)
+                    else "A required tool needs more rule packs",
                 )
+
+    def _readable(self, kind: str, key: str, requester: User) -> bool:
+        """Whether a finding may name this resource: the existing client READ policy.
+        Unknown and unreadable resources are treated alike."""
+        try:
+            self._catalog.get_info_for_client(kind, key, requester)
+        except (KeyError, ValueError):
+            return False
+        return True
 
     # ------------------------------------------------------------------
     # Visibility

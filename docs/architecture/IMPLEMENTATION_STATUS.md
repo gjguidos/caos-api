@@ -10,6 +10,86 @@ This page is evidence-labelled guidance, not proof. A session must confirm it ag
 
 ## Current milestone
 
+**REASONING-0.1C — First-class Reasoning Tool** (implemented, uncommitted; awaiting
+architectural review). See [REASONING-0.1 §14](../REASONING_0_1_ARCHITECTURE.md). Optional
+cognitive `reasoning@1.0.0` in `ToolRegistry` over the existing `cognitive.interpret@1.0.0`
+(provider `system.reasoning`): one declared action, V1 execution denied, trusted adapter
+delegating to the existing governed caller, strict `AgentToolRef.config` (`tasks`: exact
+published task versions; narrows only), safe RG-02F/`caos.catalog` projection with task
+titles/descriptions (`ToolConfigField.options`, additive). No new engine, task, signal,
+grant, trusted line, policy revision or model access; Enki's Tool list unchanged. Startup
+validates the descriptor and binding when policy grants the signal. Runtime checkpoint
+(read-only Nataraja `inspect`, 2026-10-31): source = installed policy `88cdfa80…`; 3 Agents
+(Enki, Thoth sleeping; Nabu manual), 3 succeeded operations, 16 verified Seshat records, no
+live writes since the 23:15 restart. Full backend 2901 passed, 11 skipped, 5 inherited
+failures. Next after review: Ptah interaction contracts → ENKI-1.0-B.
+
+**REASONING-0.1B — Governed Reasoning capability** (implemented, uncommitted; **accepted**). See [REASONING-0.1 §13](../REASONING_0_1_ARCHITECTURE.md). Enki-only
+`cognitive.interpret@1.0.0`, provider `system.reasoning`: single-signal scope, session origin
+(bootstrap refused), no trusted line, published fingerprint-pinned tasks only, authority
+rechecked before the model call and before releasing a result, trusted deadline, per-Agent
+model preference only inside the allow-list. Reviewed `config/reasoning.local.json`
+(`openai-gpt-6-astra` only) validated at startup (frozen registry, published fingerprint,
+exact real structured-output repositories via a generic `model_catalog_checks` lifespan
+hook). Checked-in policy revision `1a960bd4…` → `88cdfa80…`; Nataraja declares the provider.
+Opt-in real-model smoke test passed (schema acceptance, parsing, token cap). Full backend
+2834 passed, 11 skipped, 5 inherited failures. Next after review: ENKI-1.0-B (after Ptah
+interaction contracts).
+
+**REASONING-0.1A — Governed Reasoning Task Foundation** (accepted; uncommitted). See [REASONING-0.1 §12](../REASONING_0_1_ARCHITECTURE.md). In-process
+`ReasoningTaskRegistry` (exact keys, pinned fingerprints, freeze), `ReasoningExecutor`
+(strict bounded requests, model allow-list, structured-output capability gate, deadline-
+bounded attempts, cancellation, opaque failures, no prompt logging), first task
+`manuscript.answer_extraction@1.0.0` (fingerprint `06354ea7…`) with deterministic closed-world
+verification, and an additive `get_structured_response_async` on the OpenAI/Azure clients and
+repository. No signal, grant, policy, DI wiring, turn plan, Ptah or client change. 43 new tests
+(fake model); full backend 2802 passed, 9 skipped, 5 inherited failures. Next after review:
+REASONING-0.1B (authority contract in §12.6).
+
+**REASONING-0.1 — Cognitive resource architecture review** (design approved with refinements). See [REASONING-0.1 Architecture](../REASONING_0_1_ARCHITECTURE.md).
+Proposes `cognitive.interpret@1.0.0` (provider `system.reasoning`) over a closed,
+fingerprinted Reasoning Task Registry, the first task `manuscript.answer_extraction@1.0.0`,
+model allow-list and budgets, deterministic post-validation, Enki's turn sequence (Manuscript
+→ Catalog → Reasoning → Manuscript answer → draft proposal → human), Ptah interaction IDs and
+VS-1/VS-2 continuity. **Nothing implemented, registered or granted**; no code, policy or
+client change. Next after review: REASONING-0.1A (registry/contracts, no grant).
+
+**VALIDATION-SEC-0.1 — Hidden resource disclosure in `data.validation`** (corrected,
+uncommitted; awaiting architectural review). See [Security Findings](../SECURITY_FINDINGS.md).
+Requester-facing validation findings named a readable Role's internal required Tools
+(and their count); the raw result was reachable through the generic signal route on an
+awakened Genesis (the G3.3 envelope already scrubbed messages). Findings now name a
+resource only if the requester may READ it, and identical findings collapse. Validity,
+codes, paths, digests, G3.3/G3.4, grants and bindings unchanged. 14 new tests (one
+reproduces the leak end to end against the pre-correction validator); focused regression
+1566 passed; full backend 2759 passed, 9 skipped, 5 inherited failures. Open related
+findings VS-1…VS-4 are recorded for review.
+
+**CATALOG-0.1A — Governed Catalog capability** (implemented under the architect's
+approval, uncommitted on top of `b7c40fb`; awaiting architectural review). See
+[Catalog §2](../CATALOG.md). Enki's read-only `catalog.project@1.0.0` (provider
+`system.catalog`): Enki-only grant (pinned in `genesis_local`), single-signal attenuated
+scope, session-origin permits only (bootstrap refused), no trusted line (refused at
+startup), requester from UTU's trusted session adapter, strict bounded `list`/`resolve`
+commands, result equal to the human's own catalog for that source Agent, no mutation.
+Registered only when policy grants it; startup fails if granted but unbound. Local policy
+revision `f79a003f…` → `1a960bd4…` (computed offline; not installed — the live API is
+paused). Compatibility integrity: `compatible` is unconditional; incomplete candidates are
+`conditional`, hidden/unknown candidate references give identical field-level findings
+without names or counts; G3.3 remains authoritative. Verification (isolated container,
+disposable Mongo/Redis): 73 catalog tests incl. real-policy integration; focused
+regression 1552 passed; full backend 2745 passed, 9 skipped, 5 inherited root-signing
+fixture failures. Inherited static finding: 8 mypy `attr-defined` in `genesis_local.py`
+(unchanged from `HEAD`). Next after review: **REASONING-0.1**.
+
+**CATALOG-0.1 — Governed Resource Catalog** (implemented, uncommitted; **accepted** by the
+architect). See [Catalog §1](../CATALOG.md). In-process, read-only `ResourceCatalog` over
+the existing registries, the Workflow catalog and the Manuscript Registry for Agent Types,
+Roles, Souls, Tools, Workflows, RulePacks and Manuscripts; strict `caos.catalog.*` v1.0.0
+contracts; separate existence/visibility, compatibility and attachment decisions;
+execution authorization never evaluated; Ptah-ready declarative metadata. The Manuscript
+catalog port delegates to it (fingerprints and pins unchanged).
+
 **MANUSCRIPT-0.1B — First-class Manuscript Tool** (implemented, uncommitted; awaiting
 architectural review). `ToolRegistry` key `manuscript`, Tool version `1.0.0`, optional
 Agent-configured deterministic façade over the existing `system.manuscript` provider.
@@ -20,7 +100,7 @@ grant, trusted line, Enki definition/policy or client change. Focused regression
 passed, including disposable Mongo/Redis integration. The development API was paused with
 operator approval before edits and remains paused; no live database access or deployment
 claim. Future Designer/validation/Sandbox/governed publication are planned only.
-See [Manuscripts §9–§10](../MANUSCRIPTS.md). Next after review: **CATALOG-0.1**.
+See [Manuscripts §9–§10](../MANUSCRIPTS.md). Committed in `e076639`; CATALOG-0.1 followed.
 Full backend regression in isolated Docker: 2672 passed, 9 skipped, 5 inherited
 root-signing fixture failures; external authz disabled in tests only, UTU/CPBX active.
 
@@ -34,7 +114,7 @@ root-signing fixture failures; external authz disabled in tests only, UTU/CPBX a
 
 **DRAFT-0.1 — Durable, server-authoritative Agent draft** (implemented, uncommitted; awaiting architectural review; no client integration). See [Agent Drafts](../AGENT_DRAFTS.md): strict partial `AgentCreationInput` content in the existing `caos.agent_creation_draft` envelope; immutable, digest-chained revisions (`coll_agent_draft_revisions`, `_id = draft_id:revision` as the compare-and-set) with a roll-forward latest-revision projection (`coll_agent_drafts`); `POST/GET/PATCH /api/v2/agentverse/agents/{source}/creation-drafts…` with `expected_revision` and `409 draft.revision_conflict`; owner/tenant/source isolation through the G3.3 gateway's existing human-to-source authority (new read-only `requester()`) plus the existing creator policy. No new UTU grant, CPBX signal, Seshat event, OPS V2 operation or G3.3/G3.4 semantic change. DRAFT-0.2A followed.
 
-**ENKI-1.0 — architecture Approved with conditions (2026-10-30); DRAFT-0.1/0.2A/0.2B and MANUSCRIPT-0.1 implemented (uncommitted), the rest Planned.** [ADR-0003](decisions/ADR-0003-enki-1-0-ptah-manuscript-shared-draft.md) and [ENKI-1.0 Architecture §0](../ENKI_1_0_ARCHITECTURE.md) record Ptah (interface composition and integrity), the Manuscript Registry/Tool, one durable shared Agent draft and a general reasoning capability. Sequence: DRAFT-0.1, DRAFT-0.2A, DRAFT-0.2B, MANUSCRIPT-0.1 and MANUSCRIPT-0.1A (implemented, uncommitted) → **CATALOG-0.1 (next)** → REASONING-0.1 → ENKI-1.0-B → PTAH-0.1 → PTAH-0.2 → ENKI-1.0; Ptah's component/interaction contracts precede ENKI-1.0-B; Nabu activation provisioning is separate. Continuity: [Handoff](HANDOFF.md). Additional approved decision (implementation pending): multi-interface Agent navigation with existing shadcn/ui Tabs, from registered GUI declarations ([§0.4](../ENKI_1_0_ARCHITECTURE.md)); tab labels resolve declaration override → UI Component Registry default → deterministic fallback, and tabs are implemented in PTAH-0.2 ([§0.5–§0.6](../ENKI_1_0_ARCHITECTURE.md)); both approved, implementation pending.
+**ENKI-1.0 — architecture Approved with conditions (2026-10-30); DRAFT-0.1/0.2A/0.2B and MANUSCRIPT-0.1 implemented (uncommitted), the rest Planned.** [ADR-0003](decisions/ADR-0003-enki-1-0-ptah-manuscript-shared-draft.md) and [ENKI-1.0 Architecture §0](../ENKI_1_0_ARCHITECTURE.md) record Ptah (interface composition and integrity), the Manuscript Registry/Tool, one durable shared Agent draft and a general reasoning capability. Sequence: DRAFT-0.1, DRAFT-0.2A, DRAFT-0.2B, MANUSCRIPT-0.1 and MANUSCRIPT-0.1A (implemented, uncommitted) → **CATALOG-0.1 (in-process catalog implemented, uncommitted)** → REASONING-0.1 (next) → ENKI-1.0-B → PTAH-0.1 → PTAH-0.2 → ENKI-1.0; Ptah's component/interaction contracts precede ENKI-1.0-B; Nabu activation provisioning is separate. Continuity: [Handoff](HANDOFF.md). Additional approved decision (implementation pending): multi-interface Agent navigation with existing shadcn/ui Tabs, from registered GUI declarations ([§0.4](../ENKI_1_0_ARCHITECTURE.md)); tab labels resolve declaration override → UI Component Registry default → deterministic fallback, and tabs are implemented in PTAH-0.2 ([§0.5–§0.6](../ENKI_1_0_ARCHITECTURE.md)); both approved, implementation pending.
 
 **DEV-0.2 — Genesis/Khepri lifecycle separation and Nataraja closeout** (implemented, uncommitted). Thoth's local handoff no longer opts into `requester_session`: Genesis persists Thoth sleeping and Khepri activates it only through a separate, separately authorized `POST /agents/{id}/activation` naming the creating Genesis operation. Nataraja now confirms runtime provider registrations, the running process's policy revision and boot/build identity through a dev-only, loopback-only read route, and reports what an API start or source reload would do. Named Nabu acceptance rehearsal added (disposable only). See [Nataraja](../NATARAJA.md).
 
@@ -112,5 +192,10 @@ Target chain: `JOSHUA → Genesis → data.validation → store.create → Khepr
 | Thoth lifecycle | Manifest expects Thoth sleeping after creation, activated independently | DEV-0.2: `THOTH_HANDOFF.activation = "none"`; activation is the separate `/activation` request | Resolved (uncommitted) |
 | Contracts: Genesis grants | Contracts and status say Genesis holds only `data.validation` + `store.create.provisioned` | G3.4 local policy adds the scope-only `store.create.approved` | Open — update after G3.4 review |
 | AGENTS.md NCSC section | CPBX described as design target | Local CPBX, UTU permits and trusted lines are implemented; listed signals (`personality.infuse`, `prompt.build`, …) remain unregistered | Wording kept; contracts doc states current status |
+
+| Snapshot commit state | Snapshot header and milestone entries say G3.x, DEV-0.x, DRAFT-0.x and MANUSCRIPT-0.1/0.1A/0.1B are uncommitted over `828321f` | `git log`: committed as `e076639` (checkpoint) and `b7c40fb` (Ptah docs); tree was clean before CATALOG-0.1 | Open — refresh the snapshot header and per-milestone "uncommitted" labels in a reviewed docs pass |
+| Validation finding text | `ValidationIssue` docstring: messages never echo submitted values | `composition.required_tool_missing` named unreadable internal Tools | Resolved (uncommitted) by VALIDATION-SEC-0.1 |
+| Live API pause (2026-10-31) | Handoff: the development API stays paused | Restarted outside this task at 2026-10-30 23:15 UTC; auto-reloaded the uncommitted REASONING-0.1B code 9 times (startup completed each time, so the checked-in revision `88cdfa80…` was installed live and the model check passed); paused again with operator approval | Inspected read-only 2026-10-31 (REASONING-0.1C): installed = source `88cdfa80…`, no live writes after the restart, Enki/Thoth sleeping (in-memory runtimes ended), Nabu present. API remains paused; open only until the operator resumes it |
+| Live API state | Handoff §1 says the development API is paused pending review | Found running (started 2026-10-30 21:05 UTC) at CATALOG-0.1 start; paused again with operator approval before edits | Resolved for now (paused) |
 
 Add rows when a session finds drift; resolve them through reviewed changes rather than silent edits.

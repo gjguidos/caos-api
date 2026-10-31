@@ -48,9 +48,21 @@ Evidence labels: **[existing]** observed in source; **[proposed]** this design.
    fingerprints, deterministic runtime, durable sessions and
    `agent_creation_interview@1.0.0`; **MANUSCRIPT-0.1A** exposes it to Enki only through
    the approved, scoped `manuscript.session.*@1.0.0` signals (no trusted line, no route).
-   **CATALOG-0.1** next. Items 4–9 Planned.
-4. **CATALOG-0.1** — Requester-scoped catalog capability.
-5. **REASONING-0.1** — General bounded reasoning capability.
+   Items 5–9 Planned.
+4. **CATALOG-0.1** — Requester-scoped catalog capability. **Catalog service accepted;
+   CATALOG-0.1A capability implemented, uncommitted, awaiting review** ([Catalog](CATALOG.md)):
+   governed `ResourceCatalog` over the existing registries (separate existence/visibility,
+   advisory compatibility, attachment; execution never evaluated), the Manuscript catalog
+   port delegating to it, and Enki's read-only `catalog.project@1.0.0` (provider
+   `system.catalog`, Enki-only grant, single-signal scope, session origin, no trusted line;
+   local policy revision `1a960bd4…`). Enki's turn plan does not call it yet.
+5. **REASONING-0.1** — General bounded reasoning capability. REASONING-0.1A accepted;
+   **REASONING-0.1B implemented, uncommitted, awaiting review**
+   ([REASONING-0.1 §13](REASONING_0_1_ARCHITECTURE.md)): Enki-only, scoped
+   `cognitive.interpret@1.0.0` (provider `system.reasoning`) over published tasks, reviewed
+   model allow-list (`config/reasoning.local.json`), checked-in policy revision `88cdfa80…`;
+   real-model smoke verified on `openai-gpt-6-astra`. Not implemented: Enki's turn
+   coordinator (ENKI-1.0-B) and Ptah interactions.
 6. **ENKI-1.0-B** — Soul + Manuscript + reasoning + shared draft.
 7. **PTAH-0.1** — Interface composition and integrity foundations.
 8. **PTAH-0.2** — Enki form/conversation composition and client integration, including
@@ -490,7 +502,7 @@ sequenceDiagram
 | DRAFT-0.1 | Draft aggregate, repository, HTTP API (get/patch/proposal accept-reject), Seshat events; form bound to server draft | CAS conflicts return 409; proposals never mutate drafts; partial acceptance with conflict detection; revision change makes previous review stale; tenant/owner isolation; disposable integration tests |
 | DRAFT-0.2 | G3.3 approval by `{draft_id, revision}` | Server-read content equals approved snapshot; old client body form still works; G3.4 unchanged |
 | MANUSCRIPT-0.1 | Schema, registry, `agent_creation_interview@1.0.0`, deterministic tool (no LLM) | Immutable versions; pinned sessions; transitions/completion predicates; corrections/restart; typed artifact validates as `AgentCreationInput`; no Store/LLM calls |
-| CATALOG-0.1 | `catalog.project@1.0.0` | Results equal client catalogs for the same requester; private/group visibility tests |
+| CATALOG-0.1 | `catalog.project@1.0.0` | Results equal client catalogs for the same requester; private/group visibility tests (implemented and tested: results equal the human's own catalog for the same source Agent — [Catalog §2, §5](CATALOG.md)) |
 | REASONING-0.1 | `cognitive.interpret@1.0.0` structured output | Output schema-validated; invalid output yields no proposal; no authority fields expressible; LLM calls counted and attributed |
 | ENKI-1.0-B | Enki turn plan + UI proposal acceptance | End-to-end disposable: conversation → proposal → accept → validate → approve → create (sleeping); no auto-apply |
 | PTAH-0.1 | Component/layout/interaction/brand registries; packages for existing `gui_components`; diagnostics; client manifest | Existing Enki/Thoth/Nabu definitions compose to packages with stable fingerprints; forbidden content rejected; Nataraja reports package health |

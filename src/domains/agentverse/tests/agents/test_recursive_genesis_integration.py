@@ -394,8 +394,10 @@ async def test_soul_and_conversation_claims_cannot_obtain_privileged_execution(
 
     # UTU grants are unchanged and CPBX still denies every privileged signal.
     expected = {
-        # DRAFT-0.2A/MANUSCRIPT-0.1A: Enki's scoped capabilities, never privileged execution.
+        # DRAFT-0.2A/MANUSCRIPT-0.1A/CATALOG-0.1A: Enki's scoped capabilities, never
+        # privileged execution.
         ENKI: {"chat.context", "chat.response", THOTH_SIGNAL, "agent.draft.propose"}
+        | {"catalog.project", "cognitive.interpret"}
         | MANUSCRIPT_SIGNALS,
         THOTH: {"chat.context", "chat.response"},
     }

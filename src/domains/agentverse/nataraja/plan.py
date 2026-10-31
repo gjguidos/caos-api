@@ -19,12 +19,18 @@ from src.domains.agentverse.agents.creation_drafts.capability import (
 from src.domains.agentverse.agents.genesis.initiation import PROVIDER as GENESIS_PROVIDER
 from src.domains.agentverse.agents.genesis.initiation import SIGNALS as GENESIS_SIGNALS
 from src.domains.agentverse.agents.genesis.initiation import VERSION as GENESIS_VERSION
+from src.domains.agentverse.catalog.capability import PROVIDER as CATALOG_PROVIDER
+from src.domains.agentverse.catalog.capability import SIGNAL as CATALOG_SIGNAL
+from src.domains.agentverse.catalog.capability import VERSION as CATALOG_VERSION
 from src.domains.agentverse.entities.gui_components import effective_gui_components
 from src.domains.agentverse.manuscripts.capability import PROVIDER as MANUSCRIPT_PROVIDER
 from src.domains.agentverse.manuscripts.capability import SIGNALS as MANUSCRIPT_SIGNALS
 from src.domains.agentverse.manuscripts.capability import VERSION as MANUSCRIPT_VERSION
 from src.domains.agentverse.nataraja.manifest import AgentExpectation, EnvironmentManifest
 from src.domains.agentverse.nataraja.observe import Observation
+from src.domains.agentverse.reasoning.capability import PROVIDER as REASONING_PROVIDER
+from src.domains.agentverse.reasoning.capability import SIGNAL as REASONING_SIGNAL
+from src.domains.agentverse.reasoning.capability import VERSION as REASONING_VERSION
 from src.domains.agentverse.tools.store_tool.spec import (
     STORE_CREATE_APPROVED_SIGNAL,
     STORE_CREATE_APPROVED_VERSION,
@@ -50,6 +56,8 @@ DECLARED_PROVIDERS: dict[str, tuple[str, str]] = {
     **{signal: (GENESIS_PROVIDER, GENESIS_VERSION) for signal in GENESIS_SIGNALS.values()},
     PROPOSE_SIGNAL: (PROPOSE_PROVIDER, PROPOSE_VERSION),
     **{signal: (MANUSCRIPT_PROVIDER, MANUSCRIPT_VERSION) for signal in MANUSCRIPT_SIGNALS.values()},
+    CATALOG_SIGNAL: (CATALOG_PROVIDER, CATALOG_VERSION),
+    REASONING_SIGNAL: (REASONING_PROVIDER, REASONING_VERSION),
     "chat.context": ("tool.chat", "1.0.0"),
     "chat.response": ("cognitive.chat", "1.0.0"),
 }

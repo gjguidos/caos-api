@@ -102,7 +102,8 @@ class AgentCreationInput(BaseModel):
 
 
 class ValidationIssue(BaseModel):
-    """One machine-readable finding. Messages never echo submitted values."""
+    """One machine-readable finding. Messages never echo submitted values and never name a
+    resource the requester cannot read (unknown and hidden resources are alike)."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 

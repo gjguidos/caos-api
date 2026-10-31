@@ -229,6 +229,49 @@ def configure_genesis_transport(app: FastAPI, bindings: GenesisSecurityBindings)
             for grant in policy._grants.values()
             for signal in MANUSCRIPT_SIGNALS.values()
         )
+        from src.domains.agentverse.catalog.capability import (
+            catalog_policy_state,
+            validate_catalog_binding,
+        )
+
+        catalog_enabled = catalog_policy_state(policy)
+        from src.domains.agentverse.reasoning.capability import reasoning_policy_state
+
+        # REASONING-0.1B: Enki's governed reasoning, registered only when policy grants it.
+        # Configuration and the frozen task registry are validated here; model repositories
+        # once the model catalog exists (below, before any bootstrap work).
+        reasoning_enabled = reasoning_policy_state(policy)
+        reasoning_config = None
+        if reasoning_enabled:
+            from src.domains.agentverse.reasoning.capability import (
+                ReasoningCapability,
+                register_reasoning_capability,
+            )
+            from src.domains.agentverse.reasoning.config import (
+                load_reasoning_config,
+                validate_registry,
+            )
+            from src.domains.agentverse.reasoning.executor import ReasoningExecutor
+            from src.domains.agentverse.reasoning.registry import ReasoningTaskRegistry
+            from src.domains.agentverse.reasoning.tasks import register_builtin as register_tasks
+
+            reasoning_config = load_reasoning_config()
+            reasoning_tasks = ReasoningTaskRegistry()
+            register_tasks(reasoning_tasks)
+            reasoning_tasks.freeze()
+            validate_registry(reasoning_config, reasoning_tasks)
+            register_reasoning_capability(
+                synaptic_registry_instance,
+                ReasoningCapability(
+                    authority=av.utu_authority(),
+                    executor=ReasoningExecutor(
+                        registry=reasoning_tasks,
+                        client_factory=lambda: getattr(app.state, "client_factory", None),
+                        model_policy=reasoning_config.model_policy(),
+                    ),
+                    definitions=av.db_service(),
+                ),
+            )
         if any(STORE_CREATE_SIGNAL in grant.invoke for grant in policy._grants.values()) or any(
             line.target == STORE_CREATE_SIGNAL for line in policy._trusted_lines
         ):
@@ -285,7 +328,11 @@ def configure_genesis_transport(app: FastAPI, bindings: GenesisSecurityBindings)
                 gateway=app.state.agent_draft_validation_gateway,
                 repository=av.agent_draft_repository(),
             )
-            from src.domains.agentverse.manuscripts.catalog import RegistryManuscriptCatalog
+            from src.domains.agentverse.catalog.service import (
+                ResourceCatalog,
+                gateway_manuscript_visibility,
+            )
+            from src.domains.agentverse.manuscripts.catalog import GovernedManuscriptCatalog
             from src.domains.agentverse.manuscripts.definitions import register_builtin
             from src.domains.agentverse.manuscripts.registry import manuscript_registry_instance
             from src.domains.agentverse.manuscripts.service import ManuscriptService
@@ -298,12 +345,19 @@ def configure_genesis_transport(app: FastAPI, bindings: GenesisSecurityBindings)
             if not manuscript_registry_instance.frozen:
                 register_builtin(manuscript_registry_instance)
                 manuscript_registry_instance.freeze()
+            # CATALOG-0.1: one in-process, read-only Resource Catalog over the authoritative
+            # registries. No route, signal or grant; Manuscript visibility reuses the
+            # reviewed gateway bindings.
+            app.state.resource_catalog = ResourceCatalog(
+                registries=catalog_registries,
+                workflow_service=av.workflow_service(),
+                manuscripts=manuscript_registry_instance,
+                manuscript_visible=gateway_manuscript_visibility(bindings.validation_gateways),
+            )
             app.state.manuscripts = ManuscriptService(
                 registry=manuscript_registry_instance,
                 repository=av.manuscript_session_repository(),
-                catalog=RegistryManuscriptCatalog(
-                    registries=catalog_registries, workflow_service=av.workflow_service()
-                ),
+                catalog=GovernedManuscriptCatalog(app.state.resource_catalog),
             )
             # Enki's governed Manuscript signals, registered only when the reviewed policy
             # grants one (MANUSCRIPT-0.1A); visibility follows the validation gateways.
@@ -320,6 +374,20 @@ def configure_genesis_transport(app: FastAPI, bindings: GenesisSecurityBindings)
                         authority=av.utu_authority(),
                         manuscripts=app.state.manuscripts,
                         visible=gateway_visibility(bindings.validation_gateways),
+                    ),
+                )
+            # Enki's read-only catalog (CATALOG-0.1A), registered only when the reviewed
+            # policy grants it; it projects the human requester's own catalog.
+            if catalog_enabled:
+                from src.domains.agentverse.catalog.capability import (
+                    CatalogCapability,
+                    register_catalog_capability,
+                )
+
+                register_catalog_capability(
+                    synaptic_registry_instance,
+                    CatalogCapability(
+                        authority=av.utu_authority(), catalog=app.state.resource_catalog
                     ),
                 )
             from src.domains.agentverse.agents.creation_drafts.lifecycle import (
@@ -403,6 +471,12 @@ def configure_genesis_transport(app: FastAPI, bindings: GenesisSecurityBindings)
         # without a gateway/provider, or with mismatched bindings, cannot start.
         if manuscript_enabled:
             validate_manuscript_bindings(synaptic_registry_instance)
+        if catalog_enabled:
+            validate_catalog_binding(synaptic_registry_instance)
+        if reasoning_enabled:
+            from src.domains.agentverse.tools.reasoning_tool import validate_reasoning_tool
+
+            validate_reasoning_tool(synaptic_registry_instance)
         if os.getenv("GENESIS_LOCAL_ENABLED") == "true":
             from src.domains.agentverse.dependencies.genesis_local import initialize_local
 
@@ -471,6 +545,16 @@ def configure_genesis_transport(app: FastAPI, bindings: GenesisSecurityBindings)
                         exchange=av.synaptic_exchange(),
                         log=log,
                     ).ensure
+        if reasoning_config is not None:
+            from functools import partial
+
+            from src.domains.agentverse.reasoning.config import validate_models
+
+            # Runs once the model catalog exists, before any domain bootstrap; any failure
+            # aborts startup (generic lifespan hook, see base/lifespan/lifespan.py).
+            checks = list(getattr(app.state, "model_catalog_checks", ()))
+            checks.append(partial(validate_models, reasoning_config))
+            app.state.model_catalog_checks = tuple(checks)
         await sessions.start()
 
     app.state.start_genesis_sessions = start

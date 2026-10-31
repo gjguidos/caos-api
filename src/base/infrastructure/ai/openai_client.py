@@ -11,6 +11,7 @@ from typing import Any
 from openai import AsyncOpenAI
 
 from src.base.infrastructure.ai.llm_usage import record_llm_call
+from src.base.infrastructure.ai.structured_output import create_structured_response
 from src.base.utils.message_logger import MessageLogger
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,8 @@ class OpenAIClient:
     """
 
     provider: str = "openai"
+    # Explicit capability: Responses API strict json_schema output (REASONING-0.1A).
+    supports_structured_output: bool = True
 
     def __init__(
         self,
@@ -157,6 +160,33 @@ class OpenAIClient:
             )
 
         return response.output_text
+
+
+    # ----------------------------
+    # Structured output (REASONING-0.1A, additive)
+    # ----------------------------
+
+    async def get_structured_response_async(
+        self,
+        input: str | list[dict[str, Any]],
+        instructions: str,
+        *,
+        schema_name: str,
+        json_schema: dict[str, Any],
+        max_output_tokens: int,
+        model: str | None = None,
+    ) -> str:
+        """Schema-constrained call; no tools, no storage, no prompt/output logging."""
+        return await create_structured_response(
+            self.async_client,
+            provider=self.provider,
+            model=model or self.chat_deployment,
+            input=input,
+            instructions=instructions,
+            schema_name=schema_name,
+            json_schema=json_schema,
+            max_output_tokens=max_output_tokens,
+        )
 
     # ----------------------------
     # Embeddings

@@ -55,7 +55,9 @@
         "manuscript.session.answer",
         "manuscript.session.correct",
         "manuscript.session.restart",
-        "manuscript.session.complete"
+        "manuscript.session.complete",
+        "catalog.project",
+        "cognitive.interpret"
       ]
     },
     {

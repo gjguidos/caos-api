@@ -31,7 +31,7 @@
 
 ### Scope labels
 
-- **Implemented (as reported):** G3 strict `gui_components` declarations; Enki's existing V2 form and Conversation declaration; DRAFT-0.1/0.2 server-authoritative draft and human proposals; G3.3/G3.4 review/creation; `manuscript@1.0.0` first-class Tool and six scoped capabilities.
+- **Implemented (as reported):** G3 strict `gui_components` declarations; Enki's existing V2 form and Conversation declaration; DRAFT-0.1/0.2 server-authoritative draft and human proposals; G3.3/G3.4 review/creation; `manuscript@1.0.0` first-class Tool and six scoped capabilities; `reasoning@1.0.0` optional cognitive Tool over Enki's scoped `cognitive.interpret@1.0.0` (REASONING-0.1C, uncommitted).
 - **Approved design, not implemented:** Ptah System Citizen, canonical interface packages/projections, package-resolved interactions, client machine registry, Enki embedded Tool Store, Agent/Tool resource widgets, production Ptah tabs.
 - **Future proposal requiring contracts/authority:** actual Draw-backed automatic sigil, Manuscript Designer, governed validation/publishing, universal Sandbox Tool, Workflow Studio and RulePack Designer, optional User Soul adaptive presentation.
 
@@ -43,7 +43,7 @@
 | --- | --- | --- |
 | **Ptah** | UI registries, deterministic composition, package verification/publication, presentation projection, interaction binding resolution | Agent creation, grant issuance, private business state, LLM-generated executable UI |
 | **Agent/Tool/Workflow registries** | Resource specifications, versions and approved UI contribution declarations | Granting a requester access by merely listing a resource |
-| **Catalog capability (CATALOG-0.1, planned)** | Requester-scoped discoverability and reference resolution | Execution entitlements; trusting resource IDs from the browser |
+| **Catalog (CATALOG-0.1 service accepted; CATALOG-0.1A Enki `catalog.project@1.0.0` implemented, uncommitted — [Catalog](CATALOG.md))** | Requester-scoped discoverability and reference resolution | Execution entitlements; trusting resource IDs from the browser |
 | **UTU** | Identity, tenancy, policy, scoped permits, revocation and authorization | Visual presentation/layout |
 | **CPBX** | Registered exact-version capability dispatch | Frontend routes or UI composition |
 | **Genesis / G3.3 / G3.4** | Validation, review/approval, approved Agent creation | Building Ptah packages or creating sigils as an implicit side effect |
@@ -228,7 +228,9 @@ Resource data binds to current authorized catalog/read models, not baked canonic
 }
 ```
 
-The binding and interaction keys above are placeholders for PTAH/CATALOG contract design. **Do not treat them as existing signals.**
+The binding and interaction keys above are placeholders for PTAH/CATALOG contract design. **Do not treat them as existing signals.** CATALOG-0.1 provides the data contract such a binding would project (`caos.catalog.list` with a candidate and `compatible_only`; entries carry separate compatibility, attachment and a fixed `execution_authorization: not_evaluated`) — see [Catalog §4](CATALOG.md). Compatibility is advisory (`compatible` is unconditional; `conditional` marks an incomplete candidate) and G3.3 stays authoritative. No Ptah binding, human projection route or component is implemented; Enki's `catalog.project` is an Agent capability, not a browser API.
+
+Tool configuration fields may carry descriptive `options` (`value`, `label`, `description`; REASONING-0.1C). The `reasoning` Tool uses them for its `tasks` multiselect: the store can show each published task's title and description, never prompts, schemas or models. Selecting tasks changes only the candidate's `AgentToolRef.config`; it grants no execution.
 
 ### User journey
 
@@ -261,6 +263,7 @@ Ptah validates allowed slots and renders through registered components only. Too
 - Media is stored in a governed asset service by immutable references, not as image blobs in Agent documents or canonical UI package definitions.
 - Projection resolves signed/authorized asset presentation for the requester; fallback icons always work when media is absent.
 - Asset ownership, tenancy, provenance, size/format validation, lifecycle and retention must be specified before implementation.
+- **CATALOG-0.1 (implemented, uncommitted):** catalog entries carry a deterministic `fallback_icon` (kind glyph, monogram, hue from SHA-256 of `kind:key`) and a reserved `media` asset reference that is always empty; no avatar, sigil or asset is generated or stored ([Catalog §4](CATALOG.md)).
 
 ### Automatic initial sigil — approved intent, implementation **pending**
 
@@ -351,6 +354,11 @@ Seshat should record meaningful publication and consequential interaction outcom
 - Enki Draw-backed initial sigils and asset pipeline, with separately approved scope.
 - Manuscript Designer and governed publication; Sandbox Tool; Workflow/RulePack studios.
 - Future user-controlled preference projection and accessible adaptive layout research.
+
+**Interaction boundary for Enki's conversation-to-draft turn (proposed, design only):**
+`enki.conversation.submit@1.0.0` and `draft.proposal.decide@1.0.0`, resolved server-side to
+the existing V2 dispatcher/Enki turn coordinator and the human-only DRAFT-0.2A decision
+service — see [REASONING-0.1 §4](REASONING_0_1_ARCHITECTURE.md). Not registered.
 
 **Milestone sequence as currently agreed:** CATALOG-0.1 → REASONING-0.1 → ENKI-1.0-B → PTAH-0.1/0.2 → CLIENT-1.0. Design Ptah's interaction boundary before implementing ENKI-1.0-B. Engineering may revisit ordering only by explicit architectural review.
 

@@ -200,6 +200,11 @@ async def _startup_lifespan(
         default_repo = app.state.cognitive_modules["llm"].get(llm_slug)
         app.state.client_factory = build_client_factory(cm, app.state.cognitive_defaults)
 
+        # Domain checks over the model catalog (e.g. reviewed model allow-lists); any
+        # failure aborts startup before domain bootstrap runs.
+        for check in getattr(app.state, "model_catalog_checks", ()):
+            check(app.state.client_factory)
+
         # Domain bootstrap that needs the model catalog; any failure aborts startup.
         bootstrap = getattr(app.state, "bootstrap_genesis", None)
         if bootstrap is not None:

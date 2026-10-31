@@ -86,6 +86,12 @@ _ENKI_MANUSCRIPT_GRANTS = _ENKI_PROPOSER_GRANTS | {
     f"manuscript.session.{op}"
     for op in ("start", "status", "answer", "correct", "restart", "complete")
 }
+# CATALOG-0.1A (approved): Enki's read-only, requester-scoped catalog, executable only
+# under its own scope. No other Agent or System Citizen holds it.
+_ENKI_CATALOG_GRANTS = _ENKI_MANUSCRIPT_GRANTS | {"catalog.project"}
+# REASONING-0.1B (approved): Enki's governed reasoning over published tasks, executable
+# only under its own scope. No other Agent or System Citizen holds it.
+_ENKI_REASONING_GRANTS = _ENKI_CATALOG_GRANTS | {"cognitive.interpret"}
 # Deterministic System Citizens: resolved from trusted policy, never coll_agents.
 CITIZENS = {
     (TENANT, GENESIS): SystemCitizen(TENANT, GENESIS, "Genesis"),
@@ -121,7 +127,13 @@ async def initialize_local(container: Container) -> None:
         GENESIS: (_GENESIS_GRANTS, _GENESIS_CREATION_GRANTS),
         JOSHUA: (frozenset({SIGNAL}),),
         # Enki's only non-conversational grant is the Thoth creation contract.
-        ENKI: (_ENKI_REQUESTER_GRANTS, _ENKI_PROPOSER_GRANTS, _ENKI_MANUSCRIPT_GRANTS)
+        ENKI: (
+            _ENKI_REQUESTER_GRANTS,
+            _ENKI_PROPOSER_GRANTS,
+            _ENKI_MANUSCRIPT_GRANTS,
+            _ENKI_CATALOG_GRANTS,
+            _ENKI_REASONING_GRANTS,
+        )
         if recursive
         else _CHAT_GRANTS,
         THOTH: (frozenset({"chat.context", "chat.response"}),),

@@ -41,7 +41,36 @@ source before acting; this page summarizes, it does not prove. Start sessions wi
 - **MANUSCRIPT-0.1A** (approved, implemented, uncommitted, awaiting review): Enki-only,
   scoped `manuscript.session.*@1.0.0` (provider `system.manuscript`, no trusted line) —
   [Manuscripts §6](../MANUSCRIPTS.md). Local policy revision `f79a003f…`.
-- **Next milestone:** **CATALOG-0.1**. Then REASONING-0.1 → ENKI-1.0-B →
+- **CATALOG-0.1** (accepted) and **CATALOG-0.1A** (implemented, uncommitted, awaiting
+  review): governed `ResourceCatalog`; the Manuscript catalog port delegates to it; Enki's
+  read-only `catalog.project@1.0.0` (provider `system.catalog`, Enki-only, single-signal
+  scope, session origin, no trusted line). Checked-in local policy revision is now
+  `1a960bd4…` (adds only Enki's `catalog.project`); not installed while the API is paused —
+  [Catalog](../CATALOG.md).
+- **VALIDATION-SEC-0.1** (corrected, uncommitted, awaiting review): `data.validation`
+  findings no longer name Tools the requester cannot read or reveal their count; no
+  decision, digest, grant or binding change. Open related findings VS-1…VS-4 —
+  [Security Findings](../SECURITY_FINDINGS.md).
+- **REASONING-0.1A** accepted; **REASONING-0.1B** implemented, uncommitted, awaiting review
+  ([REASONING-0.1 §13](../REASONING_0_1_ARCHITECTURE.md)): Enki-only scoped
+  `cognitive.interpret@1.0.0`, reviewed `config/reasoning.local.json`, checked-in policy
+  revision `88cdfa80…`, real-model smoke verified. Next: PTAH interaction contracts →
+  ENKI-1.0-B.
+- **REASONING-0.1C** (implemented, uncommitted, awaiting review;
+  [REASONING-0.1 §14](../REASONING_0_1_ARCHITECTURE.md)): optional cognitive
+  `reasoning@1.0.0` Tool over the accepted `cognitive.interpret@1.0.0`; no new grant,
+  signal, policy revision or engine. Tool registration ≠ task registration ≠ capability
+  authority.
+- **Live environment warning (2026-10-31):** the development API was restarted outside the
+  task at 23:15 UTC and auto-reloaded uncommitted 0.1B code 9 times (policy `88cdfa80…`
+  installed live); it was paused again with operator approval. A read-only Nataraja
+  `inspect` (0.1C) found installed = source `88cdfa80…` and no live writes since. Any
+  resume now also loads the uncommitted 0.1C Tool (no policy change).
+- **Commit state:** everything through MANUSCRIPT-0.1B is committed (`e076639`, plus
+  `b7c40fb` Ptah docs); only CATALOG-0.1/0.1A and VALIDATION-SEC-0.1 are uncommitted. Older "uncommitted" labels on
+  this page are historical.
+- **Next milestone:** **ENKI-1.0-B** (after REASONING-0.1C review and the PTAH interaction
+  contracts). Then ENKI-1.0-B →
   PTAH-0.1 → PTAH-0.2 → ENKI-1.0. Ptah's component and interaction **contracts** must be
   designed before ENKI-1.0-B. Nabu activation provisioning is a separate milestone.
 - **MANUSCRIPT-0.1B** (implemented, uncommitted, awaiting architectural review): first-class
@@ -50,7 +79,8 @@ source before acting; this page summarizes, it does not prove. Start sessions wi
   V1 denial. Same engine/provider/grants/Enki definition. Designer, validation, isolated
   Sandbox and governed publication are future plans only — [Manuscripts §9–§10](../MANUSCRIPTS.md).
 - **Current execution safety:** the operator approved pausing `caos-api` before 0.1B
-  source edits to prevent reload/bootstrap against live data. **Leave it paused for
+  source edits to prevent reload/bootstrap against live data. It was found running again at
+  CATALOG-0.1 start and re-paused with operator approval (2026-10-30). **Leave it paused for
   architectural review.** Testing uses a separate Docker container and isolated disposable
   Mongo/Redis network; no live DB was queried or modified. Resuming is a separate operator
   decision and can trigger normal reload/bootstrap. Focused regressions: 214 passed.
@@ -125,6 +155,9 @@ changed. Do not inspect or mutate the live environment merely to refresh this pa
 
 ## 5. Outstanding production-hardening risks
 
+- Open validation findings VS-1…VS-4 (unscoped Genesis `data.validation` via the generic
+  route, raw-metadata fingerprints, existence of an unreadable Role requirement, Workflow
+  re-read race) — [Security Findings](../SECURITY_FINDINGS.md).
 - Revocation racing a write that already passed Store's `effective()` check (bounded window).
 - Store writes are not OPS-fenced; an expired-lease process that is still alive cannot be fenced at Store.
 - Approval/creation expiry relies on worker clocks.
@@ -193,9 +226,13 @@ Mongo for integration tests. DRAFT-0.1/0.2A/0.2B (docs/AGENT_DRAFTS.md) and
 MANUSCRIPT-0.1/0.1A/0.1B (docs/MANUSCRIPTS.md) are implemented and await review. The
 development API was paused with operator approval before 0.1B edits: leave it paused
 pending architectural review; do not resume/reload live bootstrap as verification.
-Next: CATALOG-0.1
-(requester-scoped catalog capability, ENKI-1.0 §0.2), which may replace the Manuscript
-catalog port. Enki holds the approved, scoped manuscript.session.*@1.0.0 signals. Preserve
+CATALOG-0.1 (accepted) and CATALOG-0.1A (docs/CATALOG.md) are uncommitted; Enki holds the
+approved read-only catalog.project@1.0.0 (checked-in policy revision 1a960bd4…, installed
+only when the operator resumes the API). VALIDATION-SEC-0.1 (docs/SECURITY_FINDINGS.md)
+is uncommitted and awaits review. REASONING-0.1A/0.1B (accepted) and REASONING-0.1C (docs/REASONING_0_1_ARCHITECTURE.md §14,
+reasoning@1.0.0 Tool, awaiting review) are uncommitted; Enki holds the approved cognitive.interpret@1.0.0 (checked-in policy
+88cdfa80…, already installed once live by an out-of-task API restart). Next: Ptah interaction
+contracts, then ENKI-1.0-B. Enki holds the approved, scoped manuscript.session.*@1.0.0 signals. Preserve
 G3.3 digests and G3.4 creation; do not add grants, signals or policy revisions beyond
 those approved.
 ```
