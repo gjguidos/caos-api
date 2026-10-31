@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 
 from src.domains.agentverse.entities.collection import CollectionCreateMetadata, CollectionDocument
 from src.domains.agentverse.exceptions import PDFIngestionError
+from src.domains.agentverse.runtime.compatibility import require_legacy_mutable
 from src.domains.agentverse.services.db_service import DBService
 from src.domains.agentverse.services.pdf_ingestion_service import PDFIngestionService
 from src.domains.agentverse.services.vectordb_service import VectorDBService
@@ -37,6 +38,8 @@ class PDFIngestionOrchestrator:
         agent = await self.db_service.find_by_id(agent_id=agent_id)
         if not agent:
             raise PDFIngestionError(f"Agent '{agent_id}' not found")
+        # AGENT-DEF-SEC-0.1: refuse before any collection or vector write.
+        require_legacy_mutable(agent)
 
         col_data = await self.db_service.find_collection(
             agent_id=agent_id, collection_name=collection_name

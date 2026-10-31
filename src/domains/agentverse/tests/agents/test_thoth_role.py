@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from src.domains.agentverse.agents.conversational_composition_v2 import supports_v2_conversation
+from src.domains.agentverse.agents.conversational_composition_v2 import resolve_conversation
 from src.domains.agentverse.agents.roles.thoth import thoth  # noqa: F401 - registration
 from src.domains.agentverse.agents.roles.thoth.spec import role_spec
 from src.domains.agentverse.dependencies.genesis_local import THOTH_PROVISION
@@ -15,7 +15,19 @@ def test_thoth_role_is_registered_and_conversational() -> None:
     role = role_registry_instance.get_role("thoth")
     assert role is role_spec
     assert (role.agent_group, role.agent_subclass) == ("interactive_ui", "conversational")
-    assert supports_v2_conversation("chat", "thoth")
+    # The policy-pinned Thoth identity converses through reviewed legacy compatibility
+    # (CONVERSATION-0.1A, identity-bound by AGENT-DEF-SEC-0.1).
+    composition = resolve_conversation(
+        {
+            "id": THOTH_PROVISION.agent_id,
+            "tenant_id": THOTH_PROVISION.tenant_id,
+            "runtime_version": "v2",
+            "type": "chat",
+            "role_name": "thoth",
+            "tools": [],
+        }
+    )
+    assert (composition.source, composition.compatibility) == ("legacy", "legacy.v2.thoth")
 
 
 def test_thoth_role_requires_no_tools_and_names_no_handlers() -> None:

@@ -142,5 +142,9 @@ def test_soul_fields_are_character_not_permissions_or_evidence() -> None:
 def test_no_per_turn_soul_override_exists() -> None:
     assert list(inspect.signature(project_soul_v2).parameters) == ["soul"]
     source = inspect.getsource(cognitive_response_v2.CognitiveResponseV2.handle)
-    assert 'set(payload) != {"conversation_id", "text"}' in source
+    # Only the text, the conversation and (REV-5) the trusted dispatcher's definition
+    # binding: never a caller-chosen soul, personality or prompt override.
+    assert "set(payload) not in (" in source
+    assert '{"conversation_id", "text"},' in source
+    assert '{"conversation_id", "text", "definition"},' in source
     assert "override_key" not in source

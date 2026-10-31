@@ -259,6 +259,51 @@ GENESIS_EVENTS = {
             "succeeded",
             {
                 "event_version": 1,
+                "approval_id": "0b5c2d4e-1f00-5a00-8000-000000000006",
+                "agent_id": "0b5c2d4e-1f00-5a00-8000-000000000003",
+                "executor_id": "genesis",
+                "review_id": "0b5c2d4e-1f00-5a00-8000-000000000007",
+                "review_digest": "e" * 64,
+                "draft_id": "0b5c2d4e-1f00-5a00-8000-000000000008",
+                "draft_revision": 2,
+                "candidate_definition_digest": "c" * 64,
+                "predecessor_revision": 1,
+                "predecessor_revision_digest": "a" * 64,
+                "gateway_fingerprint": "b" * 64,
+                "utu_policy_revision": "f" * 64,
+            },
+        )
+        for event_type in (
+            "agent.definition_revision.approved",
+            "agent.definition_revision.withdrawn",
+        )
+    },
+    **{
+        event_type: (
+            "succeeded",
+            {
+                "event_version": 1,
+                "application_id": "0b5c2d4e-1f00-5a00-8000-000000000009",
+                "approval_id": "0b5c2d4e-1f00-5a00-8000-000000000006",
+                "agent_id": "0b5c2d4e-1f00-5a00-8000-000000000003",
+                "review_digest": "e" * 64,
+                "revision": 2,
+                "revision_digest": "d" * 64,
+                "definition_digest": "c" * 64,
+                "predecessor_revision": 1,
+                "predecessor_revision_digest": "a" * 64,
+            },
+        )
+        for event_type in (
+            "agent.definition_revision.selected",
+            "agent.definition_revision.applied",
+        )
+    },
+    **{
+        event_type: (
+            "succeeded",
+            {
+                "event_version": 1,
                 "proposal_id": "0b5c2d4e-1f00-5a00-8000-000000000004",
                 "draft_id": "0b5c2d4e-1f00-5a00-8000-000000000005",
                 "source_agent_id": "enki",
@@ -278,6 +323,40 @@ GENESIS_EVENTS = {
                 {"resulting_revision": 3, "content_digest": "c" * 64},
             ),
             ("agent.draft.proposal.rejected", [], {}),
+        )
+    },
+    # AGENT-CTX-0.1: activity-context transitions (references and revisions only).
+    **{
+        event_type: (
+            "succeeded",
+            {
+                "event_version": 1,
+                "context_id": "0b5c2d4e-1f00-5a00-8000-000000000006",
+                "activity": "agent.creation_interview@1.0.0",
+                "activity_fingerprint": "d" * 64,
+                "owner_kind": "conversation.v2",
+                "owner_id": "conversation-1",
+                "principal_id": "enki",
+                "generation": 2 if event_type == "activity.context.switched" else 1,
+                "revision": 3 if event_type == "activity.context.closed" else 1,
+                "references": [
+                    {
+                        "slot": "draft",
+                        "kind": "agent.creation_draft",
+                        "resource_id": "0b5c2d4e-1f00-5a00-8000-000000000005",
+                        "revision": 2,
+                    }
+                ],
+                **extra,
+            },
+        )
+        for event_type, extra in (
+            ("activity.context.started", {}),
+            (
+                "activity.context.switched",
+                {"previous_context_id": "0b5c2d4e-1f00-5a00-8000-000000000008"},
+            ),
+            ("activity.context.closed", {"closed_reason": "completed"}),
         )
     },
 }

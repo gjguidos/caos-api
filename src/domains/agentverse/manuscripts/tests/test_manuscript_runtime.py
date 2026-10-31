@@ -18,7 +18,11 @@ from pymongo.errors import AutoReconnect
 
 from src.base.entities.user import User
 from src.base.events.v2.contracts import EventPermissionError
-from src.domains.agentverse.agents.creation_drafts.models import AgentDraftCreateRequest
+from src.domains.agentverse.agents.creation_drafts.models import (
+    AgentDraftCreateRequest,
+    DraftNotFound,
+)
+from src.domains.agentverse.agents.creation_drafts.references import DraftReference
 from src.domains.agentverse.manuscripts.catalog import RegistryManuscriptCatalog
 from src.domains.agentverse.manuscripts.definitions import register_builtin
 from src.domains.agentverse.manuscripts.definitions.agent_creation_interview import (
@@ -85,6 +89,23 @@ class FakeCatalog:
         return key if (kind, key) in self.visible.get(requester.id, set()) else None
 
 
+class FakeDrafts:
+    """Read-only draft references owned by ``(tenant, subject, source Agent)``."""
+
+    def __init__(self) -> None:
+        self.owned = {
+            ("tenant", "owner", "enki", "draft-1"): DraftReference("draft-1", 1, "editing")
+        }
+
+    async def reference(
+        self, *, tenant_id: str, subject_id: str, source_agent_id: str, draft_id: str
+    ) -> DraftReference:
+        try:
+            return self.owned[(tenant_id, subject_id, source_agent_id, draft_id)]
+        except KeyError:
+            raise DraftNotFound("Draft not found") from None
+
+
 @pytest.fixture
 def runtime():
     store = DraftMongo()
@@ -96,6 +117,7 @@ def runtime():
         registry=registry,
         repository=MongoManuscriptSessionRepository(store),
         catalog=catalog,
+        drafts=FakeDrafts(),
         clock=Clock(),
     )
     return SimpleNamespace(store=store, registry=registry, catalog=catalog, service=service)

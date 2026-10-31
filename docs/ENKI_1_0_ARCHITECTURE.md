@@ -83,6 +83,8 @@ automatic grants or activation.
    unspecified; ENKI-1.0-B (where the Role changes) is the natural candidate.
 3. **Ptah contract-design gate.** Whether the pre-ENKI-1.0-B contract design is a
    separate documentation milestone (e.g. PTAH-0.0) or part of ENKI-1.0-B's entry criteria.
+   *2026-10-31:* drafted as PTAH-0.0 ([PTAH-0.0 Interaction Contracts](PTAH_0_0_INTERACTION_CONTRACTS.md)); awaiting review. ENKI-1.0-B
+   follows CONV-REC-0.1, MANUSCRIPT-0.1C, ENKI-CTX-0.1, PTAH-0.1a and ENKI-COMP-0.1.
 4. **Draft revision auditing.** Which draft revisions are "consequential" for Seshat
    (e.g. accepted proposals and review/approval-bound revisions vs. every form save).
 5. **Draft lifecycle after creation.** Whether a consumed draft may continue to be edited
@@ -425,6 +427,45 @@ DraftProposal {
 
 ## 5. Sequence
 
+> 2026-10-31: the client turn is `conversation.submit@1.0.0` (generalized from `enki.conversation.submit@1.0.0`, ADR-0004) and the human decision
+> `draft.proposal.decide@1.0.0` ([PTAH-0.0 Interaction Contracts](PTAH_0_0_INTERACTION_CONTRACTS.md) §2); the turn runs under one 60 s deadline.
+> CONV-REC-0.1 (implemented, awaiting review) makes each turn an owned, fenced, renewable
+> lease with lazy `interrupted` recovery (PTAH-0.0 §3). Consequential steps in the
+> coordinator must follow the cross-service contract in PTAH-0.0 §3.6: deterministic
+> idempotency keys, owner-service CAS, and re-reading state instead of repeating work.
+> MANUSCRIPT-0.1C (implemented, awaiting review): a session binds only the human's own
+> `editing` draft. `restart` and `complete` re-check it. The coordinator reads the current
+> draft revision for `base_revision` and re-checks before proposing ([Manuscripts §9A](MANUSCRIPTS.md)).
+> **Correction (approved, [ADR-0004](architecture/decisions/ADR-0004-conversation-tool-and-activity-context.md)):**
+> Enki is an ordinary Agent. Its creation interview is a registered activity contract
+> (`agent.creation_interview@1.0.0`) on a generic Activity Context Service, and conversation
+> is an optional `conversation@1.0.0` Tool.
+> CONVERSATION-0.1A (implemented, awaiting review; [Conversation Tool](CONVERSATION_TOOL.md)):
+> - Enki converses through the temporary `legacy.v2.form.enki` compatibility entry: both
+>   modes, no declared activities, its existing grants unchanged.
+>   Since AGENT-DEF-SEC-0.1 the entry is bound to Enki's pinned identity.
+> - ENKI-COMP-0.1 replaces that entry with an explicit `conversation@1.0.0` attachment
+>   declaring `agent.creation_interview@1.0.0`, through governed definition revision.
+> - Proposed target revision ([ADR-0005 §5](architecture/decisions/ADR-0005-governed-agent-definition-revision.md)):
+>   - `conversation` with both modes and `agent.creation_interview@1.0.0`;
+>   - `manuscript` with `default_manuscript: agent_creation_interview@1.0.0`;
+>   - `reasoning` with `tasks: [manuscript.answer_extraction@1.0.0]`.
+>
+>   Grants are unchanged; `catalog.project` and `agent.draft.propose` stay grant-only
+>   (no Tool exists). This depends on the REV-1 to REV-4 revision milestones; nothing is
+>   approved or implemented.
+> - No runtime path branches on Enki's Role.
+>
+> AGENT-CTX-0.1 (implemented and accepted): the creation interview is the registered
+> `agent.creation_interview@1.0.0` contract on the shared [Activity Context](ACTIVITY_CONTEXT.md).
+> Enki consumes it like any ordinary Agent would. ENKI-CTX-0.1 below is superseded and
+> removed.
+> ENKI-CTX-0.1 (superseded): the conversation → Manuscript session and
+> draft link is a Mongo `caos.enki.conversation_context` record. It is created only when an
+> interview starts, with one active generation per owner scope, CAS, turn-fenced writes
+> and Seshat evidence ([PTAH-0.0 §4.0](PTAH_0_0_INTERACTION_CONTRACTS.md)). The coordinator
+> and Ptah runtime are still to be built.
+
 ```mermaid
 sequenceDiagram
     actor H as Human
@@ -531,6 +572,9 @@ grants or activation for existing Agents.
   the source of truth (DRAFT-0.1). Unsaved local drafts migrate on first save.
 - **Existing conversations**: unchanged `ConversationV2`; an optional `draft_id` link is
   stored on Enki conversation metadata (not on the conversation identity).
+  *Superseded 2026-10-31 (approved decisions 1–3):* links live in a separate Mongo record,
+  `caos.enki.conversation_context` v1, created only when an interview starts and holding
+  references only ([PTAH-0.0 Interaction Contracts](PTAH_0_0_INTERACTION_CONTRACTS.md) §4).
 - **Tool/Workflow UI**: legacy `ui.*` metadata keeps rendering; PTAH-0.2 adds
   contributions side by side and removes endpoints once clients use interactions.
 - **Approvals**: existing body-based approvals remain valid; draft-based approvals add

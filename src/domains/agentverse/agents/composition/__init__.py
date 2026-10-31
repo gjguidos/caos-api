@@ -24,7 +24,7 @@ from src.domains.agentverse.agents.composition.models import (
     CompositionResult,
     V2CompositionPolicy,
 )
-from src.domains.agentverse.agents.conversational_composition_v2 import supports_v2_conversation
+from src.domains.agentverse.agents.conversational_composition_v2 import resolve_conversation
 from src.domains.agentverse.agents.factory import AgentFactory
 from src.domains.agentverse.entities.gui_components import default_gui_components
 from src.domains.agentverse.services.agent_service import AgentService
@@ -99,9 +99,21 @@ class AgentComposer:
             return fail("validation.normalized", "validation.not_valid", "Normalized input invalid")
 
         resolved = validation.resolved
-        if data.type not in policy.agent_types or not supports_v2_conversation(
-            data.type, data.role_name
-        ):
+        tools = [tool.model_dump(mode="json") for tool in data.tools]
+        # AGENT-DEF-SEC-0.1: a new definition converses only through an explicit
+        # ``conversation@1.0.0`` attachment; legacy compatibility is bound to existing
+        # identities, so no Type/Role pair confers conversation. The reviewed creation
+        # compositions decide only what may be created and presented by default.
+        attached = resolve_conversation(
+            {
+                "runtime_version": policy.runtime_version,
+                "type": data.type,
+                "role_name": data.role_name,
+                "tools": tools,
+            }
+        ).available
+        presented = attached or policy.creatable(data.type, data.role_name)
+        if data.type not in policy.agent_types or not presented:
             issues.append(
                 CompositionIssue(
                     path="type",
@@ -141,7 +153,7 @@ class AgentComposer:
                 SimpleNamespace(name=data.name, type=data.type, user_id=context.subject_id)
             ),
             **backends,
-            "tools": [tool.model_dump(mode="json") for tool in data.tools],
+            "tools": tools,
             "workflows": list(data.workflows),
             "rule_pack_ids": list(data.rule_pack_ids),
             "visibility": data.visibility,
@@ -155,6 +167,7 @@ class AgentComposer:
                         agent_type=data.type,
                         role_name=data.role_name,
                         runtime_version=policy.runtime_version,
+                        conversational=presented,
                     )
                 )
             ],

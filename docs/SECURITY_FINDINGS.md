@@ -7,6 +7,113 @@ runtime policy.
 
 ---
 
+## ACTCONSENT-1 — Legacy compatibility consented to every activity contract
+
+**Status:** corrected, uncommitted (2026-10-31, MIG-FIX-0.1); awaiting architectural
+review. Found during the MIG-PRE-0.1 readiness review.
+**Severity:** low (latent). No production route or handler starts an Activity Context,
+and consent never replaced authorization: the `conversation.v2` owner still required
+`chat.response` and UTU conversation access, and Manuscript sessions their own grants.
+- **Gap:** REV-5 consent returned "unrestricted" for reviewed legacy compatibility, so
+  Thoth and Nabu (and any conversation-owned contract registered later) would have
+  passed the definition check. An unwired declaration source, or an owner kind without a
+  consent method, also meant "allowed".
+- **Correction:**
+  - legacy entries declare exact, validated activities (Enki: the creation interview;
+    Thoth and Nabu: none);
+  - `declared_activities` always returns an explicit set of contracts that resolve for
+    `conversation.v2`;
+  - a missing source, a non-set answer or an owner kind without consent denies new
+    generations (`start` / `switch`);
+  - existing contexts stay readable, closable, replayable and reconcilable.
+- **Evidence:** `activities/tests/test_activity_consent.py` (14 tests, disposable
+  MongoDB), plus the updated REV-5 and Conversation Tool assertions.
+
+---
+
+## REVGW-1 — Revision gateway changes were not bound into reviews
+
+**Status:** corrected, uncommitted (2026-10-31, REV-3); awaiting architectural review.
+Found during the REV-3 boundary review.
+**Severity:** low–moderate integrity gap.
+- **Gap:** `revision_gateways` bindings are policy configuration but not part of the UTU
+  `policy_version` digest. A binding changed at the next start (for example a different
+  executor) would not supersede existing permits, and a REV-2 review recorded only its
+  executor ID, so an old review could still read as `current`.
+- **Scope:** no approval or application existed, so nothing could act on a stale review.
+- **Correction:**
+  - reviews bind `gateway_fingerprint`, and approvals bind it plus the UTU policy
+    revision;
+  - review currency and approval effectiveness fail closed (`stale_authority`) when the
+    binding fingerprint, executor or policy revision differs;
+  - a removed binding denies outright.
+- **Evidence:** `test_changed_authority_policy_or_gateway_fails_closed` (disposable).
+- **Related, not changed:** G3.3 `validation_gateways` and `creation_gateways` have the
+  same property. Creation approvals bind the executor ID and re-run the gateway at
+  creation; a fingerprint there is a separate decision.
+
+---
+
+## AGENT-DEF-SEC-0.1 — Legacy routes could change governed V2 Agent definitions
+
+**Status:** corrected, uncommitted (2026-10-31, `feature/ops-v2` over `b70ab0b`); awaiting
+architectural review. Found during CONVERSATION-0.1A.
+**Severity:** moderate integrity bypass. The legacy routes let an Agent's creator (or a
+superadmin or group admin with write access) change or delete a governed V2 definition
+without validation, review, approval or Seshat evidence. No grant, signal or policy could
+be obtained, but composition, Role, Soul, prompt and Tool configuration could.
+
+### Bypass paths (before the correction)
+
+1. `PATCH /api/v1/agents/id/{id}` → `DBService.update_agent`. Its allowlist accepted
+   `type`, `role_name`, `personality_key`, `tools`, `prompt`, `workflows`,
+   `rule_pack_ids`, backend selectors, `name`, `metadata`, `collections`, `visibility`
+   and `whitelisted_groups`, with no runtime check.
+2. `DELETE /api/v1/agents/id/{id}` → `DBService.delete_chat_agent`. It could delete Enki,
+   Thoth or Nabu; a pinned slot could then be re-provisioned.
+3. `POST /api/v1/agents/{id}/collection/{name}/ingest-pdf` (admin) →
+   `add_collection_to_agent`. It appended `collections` to any Agent, with no per-Agent
+   ownership check.
+4. **Related (CONVERSATION-0.1A):** conversation compatibility matched `(type, role)`
+   pairs, so changing a role (path 1) or creating a new `chat/general` Agent conferred
+   implicit conversation.
+
+**Affected population:** every V2 definition (Enki, Thoth, Nabu and all Genesis/G3.4
+creations) and historical trusted seeds. GUI declarations, runtime and identity fields
+were never writable through these paths.
+
+### Correction
+
+- **One rule:** `is_governed_definition` / `require_legacy_mutable` in
+  `runtime/compatibility.py`.
+- **Enforced in:** `AgentService.update_agent` and `delete_agent` (after the existing read
+  and write checks), the store adapter `DBService.update_agent` and `delete_chat_agent`,
+  and PDF ingestion (before any write).
+- **Error:** typed `409 AGENT_DEFINITION_GOVERNED` with no Agent data. Callers who could
+  not see or write the Agent still get their unchanged `404` / `403`.
+- **No bypass:** no alternate update path and no exception for Enki, Genesis or JOSHUA.
+- **Compatibility containment:** conversation compatibility is an allowlist of immutable
+  `(tenant, Agent ID)` identities (Enki, Thoth, Nabu), each valid only with its reviewed
+  `(type, role)`. New Agents need the explicit Tool.
+
+### Evidence
+
+- `tests/services/test_agent_definition_integrity.py` (52 tests; real disposable Mongo,
+  real `DBService`, `AgentService` and V1 routes): every field change, `DELETE`, the store
+  adapter, PDF ingestion, the routes' `409`, non-disclosure ordering, marker immutability
+  and unchanged V1 behavior.
+- `tools/conversation_tool/tests/`: the identity allowlist, new `chat/general`,
+  `chat/thoth` and `form/enki` Agents without the Tool, and a runtime test with the
+  production allowlist.
+- Full backend: 3103 passed, 11 skipped, 5 inherited root-signing failures.
+
+### Remaining (open)
+
+The residual risks DEF-1–DEF-5 are listed in
+[Agent Definition Governance §4](AGENT_DEFINITION_GOVERNANCE.md).
+
+---
+
 ## VALIDATION-SEC-0.1 — `data.validation` named Tools the requester could not read
 
 **Status:** corrected, uncommitted (2026-10-30, `feature/ops-v2` over `b7c40fb`);

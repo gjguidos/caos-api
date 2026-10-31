@@ -173,6 +173,8 @@ Do not publish user-scoped projections as canonical packages; avoid cross-tenant
 }
 ```
 
+The v1 envelope, binding identity and result projection are specified in [PTAH-0.0 Interaction Contracts](PTAH_0_0_INTERACTION_CONTRACTS.md) §2 (proposed).
+
 The browser supplies **intent**, never its own trusted handler, permit, URL, provider, executable state machine, role or tenant. The server must:
 
 1. Re-establish human/requester context from a verified authenticated session.
@@ -322,6 +324,15 @@ Seshat should record meaningful publication and consequential interaction outcom
 
 ### PTAH-0.0 — Discovery / architecture contract sign-off
 
+**Correction (approved, ADR-0004):** the Enki interaction is generalized to **`conversation.submit@1.0.0`** for any Agent whose conversation composition is available. The optional `conversation@1.0.0` Tool is registered and drives composition (CONVERSATION-0.1A, implemented, awaiting review; [Conversation Tool](CONVERSATION_TOOL.md) §7). The interaction binds to the Agent's declared GUI `chat` component. The Interaction Registry, Ptah runtime and interaction frames remain unimplemented (PTAH-0.1a). **Interface availability (proposed, [ADR-0005 §6](architecture/decisions/ADR-0005-governed-agent-definition-revision.md)):** descriptors expose each declared component's coarse `availability` (`available`, or unavailable for `composition_unavailable` / `not_authorized`) without grants or signals. PTAH-0.2 composes tabs from declared components ∩ available compositions ∩ requester-visible interactions. Presentation never authorizes a turn.
+
+**Contracts drafted 2026-10-31 (design only, awaiting review):** [PTAH-0.0 Interaction Contracts](PTAH_0_0_INTERACTION_CONTRACTS.md) defines the
+`caos.ptah.interaction` v1 envelope on the existing V2 socket, the server-private
+Interaction Registry binding identity, `enki.conversation.submit@1.0.0`,
+`draft.proposal.decide@1.0.0`, typed `interaction.result` projections (references and
+outcomes only), turn-recovery invariants and the Enki conversation-context record. Nothing
+is implemented; §5.1 below stays illustrative where that document is silent.
+
 - Inspect existing `gui_components`, AgentComposer, registries, ToolSpec/Synaptic specs, `resource_exposure`, requester manifest projections, available shadcn UI and G3 API routes.
 - Produce executable contract draft, dependency inventory, compatibility matrix and ADRs for package/projection separation, Tool UI contributions and XState.
 - Avoid creating unrelated new permissions or broad trusted lines.
@@ -356,7 +367,7 @@ Seshat should record meaningful publication and consequential interaction outcom
 - Future user-controlled preference projection and accessible adaptive layout research.
 
 **Interaction boundary for Enki's conversation-to-draft turn (proposed, design only):**
-`enki.conversation.submit@1.0.0` and `draft.proposal.decide@1.0.0`, resolved server-side to
+`conversation.submit@1.0.0` (formerly `enki.conversation.submit@1.0.0`) and `draft.proposal.decide@1.0.0`, resolved server-side to
 the existing V2 dispatcher/Enki turn coordinator and the human-only DRAFT-0.2A decision
 service — see [REASONING-0.1 §4](REASONING_0_1_ARCHITECTURE.md). Not registered.
 

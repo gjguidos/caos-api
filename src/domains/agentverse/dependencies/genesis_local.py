@@ -36,6 +36,10 @@ _GENESIS_GRANTS = frozenset({"data.validation", "store.create.provisioned"})
 # G3.4 governed manual creation: store.create.approved is executable only under the
 # reviewed creation scope and writes only an effective human approval's candidate.
 _GENESIS_CREATION_GRANTS = _GENESIS_GRANTS | {"store.create.approved"}
+# REV-4 (approved contract): Genesis may also hold the exact revision-application signal,
+# executable only under agent.definition.revise. Accepted here; not declared in the
+# checked-in policy, whose installed revision is unchanged.
+_GENESIS_REVISION_GRANTS = _GENESIS_CREATION_GRANTS | {"store.revise.approved"}
 ENKI_PROVISION = ProvisionedIdentity(
     slot="enki",
     resource_type="agent",
@@ -124,7 +128,7 @@ async def initialize_local(container: Container) -> None:
     if policy._trusted_lines:
         raise ValueError("Local Genesis policy allows no trusted lines")
     allowed = {
-        GENESIS: (_GENESIS_GRANTS, _GENESIS_CREATION_GRANTS),
+        GENESIS: (_GENESIS_GRANTS, _GENESIS_CREATION_GRANTS, _GENESIS_REVISION_GRANTS),
         JOSHUA: (frozenset({SIGNAL}),),
         # Enki's only non-conversational grant is the Thoth creation contract.
         ENKI: (

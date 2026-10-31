@@ -105,19 +105,24 @@ class GuiComponents(BaseModel):
 
 
 def default_gui_components(
-    *, agent_type: str | None, role_name: str | None, runtime_version: str | None
+    *,
+    agent_type: str | None,
+    role_name: str | None,
+    runtime_version: str | None,
+    conversational: bool,
 ) -> list[ChatComponent | FormComponent]:
     """The reviewed default presentation for V2 agents; V1 keeps its own workspaces.
 
-    Mirrors ``supports_v2_conversation``: chat agents converse; the approved
-    form/enki composition is form-first with an independent conversation.
+    The Conversation component follows the registry-driven conversation composition
+    (``conversational``: an attached ``conversation@1.0.0`` Tool or a reviewed
+    compatibility entry), never the type. The approved form/enki composition is
+    form-first. Presentation is never authority.
     """
     if runtime_version != "v2":
         return []
-    if agent_type == "chat":
-        return [ChatComponent(type="chat", key="conversation", default=True)]
+    components: list[ChatComponent | FormComponent] = []
     if (agent_type, role_name) == ("form", "enki"):
-        return [
+        components.append(
             FormComponent(
                 type="form",
                 key="agent_configuration",
@@ -129,10 +134,11 @@ def default_gui_components(
                         schema_version=1,
                     )
                 ),
-            ),
-            ChatComponent(type="chat", key="conversation"),
-        ]
-    return []
+            )
+        )
+    if conversational:
+        components.append(ChatComponent(type="chat", key="conversation", default=not components))
+    return components
 
 
 def effective_gui_components(definition: dict[str, Any]) -> list[ChatComponent | FormComponent]:
@@ -140,8 +146,21 @@ def effective_gui_components(definition: dict[str, Any]) -> list[ChatComponent |
     persisted = definition.get("gui_components") or []
     if persisted:
         return list(GuiComponents.model_validate({"components": persisted}).components)
+    from src.domains.agentverse.agents.composition.models import CURRENT_V2_POLICY
+    from src.domains.agentverse.agents.conversational_composition_v2 import (
+        resolve_conversation,
+    )
+
+    # Presentation only: the same default the composer persists (an attached Tool or a
+    # reviewed creation composition). Whether a turn may run is decided at runtime.
+    # An explicit attachment decides alone (an invalid one presents no Conversation).
+    composition = resolve_conversation(definition)
     return default_gui_components(
         agent_type=definition.get("type"),
         role_name=definition.get("role_name"),
         runtime_version=definition.get("runtime_version"),
+        conversational=composition.available
+        if composition.source == "tool"
+        else composition.available
+        or CURRENT_V2_POLICY.creatable(definition.get("type"), definition.get("role_name")),
     )

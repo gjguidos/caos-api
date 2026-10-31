@@ -18,6 +18,7 @@ from src.domains.agentverse.logging.logger_v1 import (
     AGENTVERSE_LOGGER,
     LogDomain,
 )
+from src.domains.agentverse.runtime.compatibility import require_legacy_mutable
 from src.domains.agentverse.tools.web_crawler_tool.asset_state.models import (
     AssetObservation,
     AssetState,
@@ -209,6 +210,9 @@ class DBService:
                 },
             )
             raise ValueError(f"Agent with ID '{agent_id}' not found")
+        # AGENT-DEF-SEC-0.1: the legacy store adapter never writes a governed definition,
+        # whichever caller reaches it (V1 PATCH, collection linking, future callers).
+        require_legacy_mutable(existing)
 
         mutable_fields: Iterable[str] = (
             "name",
@@ -288,6 +292,7 @@ class DBService:
                 },
             )
             return False
+        require_legacy_mutable(existing)  # AGENT-DEF-SEC-0.1
 
         ok = await self.repository.delete({"id": agent_id}, collection_name)
 

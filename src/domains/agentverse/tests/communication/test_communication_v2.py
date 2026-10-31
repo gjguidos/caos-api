@@ -12,6 +12,7 @@ import pytest_asyncio
 from fastapi import FastAPI, WebSocketDisconnect
 
 from src.base.events.v2.contracts import EventPermissionError
+from src.domains.agentverse.agents.conversational_composition_v2 import ConversationGate
 from src.domains.agentverse.agents.lifecycle.agent_principal_resolver import AgentActivationApproval
 from src.domains.agentverse.agents.lifecycle.khepri import Khepri
 from src.domains.agentverse.agents.lifecycle.tests.test_session_authority import (
@@ -59,6 +60,8 @@ async def communication(session_env):  # noqa: F811 - fixture re-export
         "tenant_id": "tenant",
         "runtime_version": "v2",
         "name": "Adam",
+        # CONVERSATION-0.1A: explicit attachment; grants remain separate.
+        "tools": [{"key": "conversation", "config": {}}],
     }
     registry = SynapticRegistry()
     calls = []
@@ -97,6 +100,7 @@ async def communication(session_env):  # noqa: F811 - fixture re-export
         authority=e.utu,
         khepri=Khepri(lifecycle=e.lifecycle),
         instances=e.instances,
+        composition=ConversationGate(definitions=e.definitions),
     )
     conversation = await repository.create(
         ConversationV2(
@@ -282,6 +286,7 @@ async def test_denial_before_lifecycle_or_cpbx(communication, mode):
             "ownership": "tenant",
             "tenant_id": "tenant",
             "runtime_version": "v2",
+            "tools": [{"key": "conversation", "config": {}}],
             "enabled": False,
         }
     if mode in {"tenant", "membership"}:
@@ -456,16 +461,19 @@ async def test_asgi_route_to_adam_context(communication):
 @pytest.mark.asyncio
 async def test_journal_fails_closed_pending_and_capacity(communication):
     c = communication
-    assert (await c.repository.begin("tenant", "owner", c.event))[0] == "started"
+    status, lease = await c.repository.begin("tenant", "owner", c.event)
+    assert status == "started"
     fresh = ConversationRepositoryV2(c.s.store._repo, prefix=c.prefix)
     assert (await fresh.begin("tenant", "owner", c.event))[0] == "pending"
     response = {"type": "event.error", "code": "cancelled", "arrays": []}
-    await fresh.finish("tenant", "owner", c.event, response)
+    # Only the owning attempt's lease can commit, from any repository instance.
+    await fresh.finish("tenant", "owner", c.event, response, lease=lease)
     assert (await fresh.begin("tenant", "owner", c.event)) == ("replay", response)
     for i in range(255):
         event = c.event.model_copy(update={"event_id": f"capacity-{i}"})
-        assert (await fresh.begin("tenant", "owner", event))[0] == "started"
-        await fresh.finish("tenant", "owner", event, response)
+        status, lease = await fresh.begin("tenant", "owner", event)
+        assert status == "started"
+        await fresh.finish("tenant", "owner", event, response, lease=lease)
     assert (await fresh.begin("tenant", "owner", c.event.model_copy(update={"event_id": "full"})))[
         0
     ] == "full"

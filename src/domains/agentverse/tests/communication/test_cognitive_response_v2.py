@@ -9,6 +9,10 @@ import pytest_asyncio
 
 from src.base.events.v2.contracts import EventPermissionError
 from src.base.infrastructure.ai.client_factory import ClientFactory
+from src.domains.agentverse.agents.conversational_composition_v2 import (
+    ConversationGate,
+    LegacyConversationEntry,
+)
 from src.domains.agentverse.agents.roles.builtin.spec import role_spec
 from src.domains.agentverse.ncsc.authorization import SynapticAuthorization
 from src.domains.agentverse.ncsc.models import SynapticGrants
@@ -16,6 +20,11 @@ from src.domains.agentverse.personalities import empty_eva  # noqa: F401 - regis
 from src.domains.agentverse.registries import role_registry_instance
 from src.domains.agentverse.services.cognitive_response_v2 import CognitiveResponseV2
 from src.domains.agentverse.tests.communication import test_communication_v2 as fixtures
+
+FIXTURE_COMPATIBILITY = (
+    LegacyConversationEntry("test.chat", "tenant", "agent", "chat", "general"),
+    LegacyConversationEntry("test.enki", "tenant", "agent", "form", "enki"),
+)
 
 communication = fixtures.communication
 session_env = fixtures.session_env
@@ -59,6 +68,11 @@ async def response_env(communication):
         history=c.dispatcher.history,
         client_factory=lambda: factory,
     )
+    # AGENT-DEF-SEC-0.1: this fixture's Agent stands for an allowlisted existing definition
+    # (production entries are exact live identities; see LEGACY_CONVERSATION_COMPATIBILITY).
+    gate = ConversationGate(definitions=c.e.definitions, compatibility=FIXTURE_COMPATIBILITY)
+    service.composition = gate
+    c.dispatcher.composition = gate
     c.registry.subscribe("chat.response", provider="cognitive.chat")(service.handle)
     c.event = c.event.model_copy(
         update={"response_mode": "llm", "message": "My constellation is Orion."}

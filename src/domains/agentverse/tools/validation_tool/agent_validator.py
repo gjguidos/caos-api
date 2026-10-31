@@ -15,7 +15,8 @@ from pydantic import BaseModel, ValidationError
 
 from src.base.entities.user import User
 from src.base.operations.v2.admission import canonical_json, sha256_hex
-from src.domains.agentverse.agents.conversational_composition_v2 import supports_v2_conversation
+from src.domains.agentverse.agents.composition.models import CURRENT_V2_POLICY
+from src.domains.agentverse.agents.conversational_composition_v2 import resolve_conversation
 from src.domains.agentverse.entities.workflow import slugify_workflow_key
 from src.domains.agentverse.exceptions import WorkflowNotFoundError
 from src.domains.agentverse.registries.base import Registry, RegistryItem
@@ -338,10 +339,20 @@ class AgentDefinitionValidator:
         agent_type = type_item.key if type_item else data.type
         role = role_item.key if role_item else data.role_name
         versions = {doc["key"]: doc["version"] for doc in workflows}
+        # A Conversation component presents an explicit ``conversation@1.0.0`` attachment
+        # or a reviewed creation composition (presentation only; AGENT-DEF-SEC-0.1).
+        conversational = resolve_conversation(
+            {
+                "runtime_version": "v2",
+                "type": agent_type,
+                "role_name": role,
+                "tools": [tool.model_dump(mode="json") for tool in data.tools],
+            }
+        ).available or CURRENT_V2_POLICY.creatable(agent_type, role)
         for index, component in enumerate(data.gui_components):
             path = f"gui_components.{index}"
             if component.type == "chat":
-                if not supports_v2_conversation(agent_type, role):
+                if not conversational:
                     issues.add(path, "gui.component_incompatible", "Agent has no V2 conversation")
                 continue
             source = component.config.source

@@ -43,12 +43,14 @@ async def append(c, index, **overrides):
             | overrides
         )
     )
-    assert (await c.repository.begin("tenant", "owner", event))[0] == "started"
+    status, lease = await c.repository.begin("tenant", "owner", event)
+    assert status == "started"
     await c.repository.finish(
         "tenant",
         "owner",
         event,
         {"type": "fixture"},
+        lease=lease,
         messages=(message,),
         expected_document=c.conversation,
     )
@@ -199,7 +201,8 @@ async def test_no_transcript_artifacts_on_cancel_or_revocation(communication, st
 @pytest.mark.asyncio
 async def test_atomic_append_membership_cas_and_turn_owner(communication):
     c = communication
-    assert (await c.repository.begin("tenant", "owner", c.event))[0] == "started"
+    status, lease = await c.repository.begin("tenant", "owner", c.event)
+    assert status == "started"
     message = ConversationMessageV2(
         id="m",
         tenant_id="tenant",
@@ -212,15 +215,27 @@ async def test_atomic_append_membership_cas_and_turn_owner(communication):
     )
     with pytest.raises(ValueError):
         await c.repository.finish(
-            "tenant", "other", c.event, {}, messages=(message,), expected_document=c.conversation
+            "tenant",
+            "other",
+            c.event,
+            {},
+            lease=lease,
+            messages=(message,),
+            expected_document=c.conversation,
         )
     changed = c.conversation.model_copy(update={"agent_ids": ("second",)})
     with pytest.raises(EventPermissionError):
         await c.repository.finish(
-            "tenant", "owner", c.event, {}, messages=(message,), expected_document=changed
+            "tenant",
+            "owner",
+            c.event,
+            {},
+            lease=lease,
+            messages=(message,),
+            expected_document=changed,
         )
     assert await c.repository.read_messages("tenant", c.conversation.id) == ()
-    await c.repository.finish("tenant", "owner", c.event, {"type": "event.error"})
+    await c.repository.finish("tenant", "owner", c.event, {"type": "event.error"}, lease=lease)
 
 
 def test_cognitive_contracts_immutable_and_keep_authority_separate():

@@ -63,7 +63,7 @@ builds `app.state.manuscripts` (in-process `ManuscriptService`).
 `coll_manuscript_sessions`, one document per session (`_id = session_id`), independent
 of drafts. Fields: `session_id` (uuid5 of tenant, owner, Agent and idempotency key),
 `tenant_id`, `owner_subject_id`, `source_agent_id`, pinned `manuscript {id, version,
-fingerprint}`, optional `draft_id` (for the future handoff), `start_digest`, `revision`,
+fingerprint}`, optional `draft_id` (validated read-only since MANUSCRIPT-0.1C, §9A), `start_digest`, `revision`,
 `status` (`active`, `completed`, `restarted`), `stage`, ordered `completed_stages`,
 `answers` (`{field: {value, source: human|agent|prefill, revision}}`), `artifact` and
 `artifact_digest` (once completed), `restarted_from` / `restarted_to`, `applied` (the last
@@ -356,6 +356,46 @@ and Redis, source/config mounted read-only; no live database access. With explic
 approval, the reload-enabled development API was paused **before source edits** and is
 left paused for review. Live deployment of the new descriptor was not verified; resuming
 the API would reload code and run normal bootstrap, so is a separate operator decision.
+
+## 9A. Draft-reference integrity (MANUSCRIPT-0.1C: implemented, uncommitted, awaiting review)
+
+A supplied `draft_id` is resolved, read-only, through a narrow port
+(`ManuscriptService(drafts=…)`, `DraftReferences.reference`). Its production adapter is
+`agents/creation_drafts/references.py` `DraftReferenceReader`, which uses the draft
+domain's own ownership rule (`owned_record`) and repository read. The trusted actor supplies
+the tenant, owner subject and source Agent, never the request. The port returns only
+`{draft_id, revision, status}`.
+
+- `session.draft_unavailable`: missing, other tenant, other human or other source Agent.
+  These are indistinguishable.
+- `session.draft_not_editable`: only for the actor's own approved or consumed draft.
+- `session.unavailable` (retryable): the draft store is unreachable.
+- Without a reader, an attached draft fails closed.
+
+| Path | Draft check | Why |
+| --- | --- | --- |
+| `start`, new session with `draft_id` | Actor's own draft (tenant, owner subject, source Agent) **and** `editing` | Creates a new interview binding |
+| `start`, idempotent replay | Still the actor's draft; status **not** required | Returns the recorded session unchanged; history is not rewritten |
+| `restart`, new successor | Own **and** `editing` | The successor re-binds the same draft |
+| `restart`, already restarted | None | Returns the recorded successor unchanged |
+| `complete`, new completion | Own **and** `editing` (before any change) | Emits the artifact intended for that draft |
+| `complete`, replay of an applied request | None | Returns the recorded completion (same artifact digest) |
+| `status`, `answer`, `correct` | None | They do not depend on the draft |
+| Sessions without `draft_id` | None, and no draft read | Unchanged |
+
+Unchanged: the session schema (`draft_id` already existed), session ID derivation, start
+digest (already covers `draft_id`), fingerprints, replay window, artifact digest, result
+contract and grants. Manuscript gains no draft-write handle. The draft read path may
+idempotently move the derived head projection to an already committed revision, as every
+draft read does; it never creates a revision or changes content. There is no cross-store
+transaction: a draft frozen between a check and the session write is caught by the next
+consequential check, and by the coordinator.
+
+**Left to the ENKI-1.0-B turn coordinator:** the draft revision (Manuscript records no draft
+revision; the coordinator reads the current one and uses it as the proposal's
+`base_revision`), re-checking before `agent.draft.propose` (whose own ownership and
+`base_revision` checks stay authoritative), and choosing which draft a conversation uses
+(ENKI-CTX-0.1).
 
 ## 10. Future authoring lifecycle (planned, not implemented)
 

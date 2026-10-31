@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
+from src.domains.agentverse.agents.composition.models import CURRENT_V2_POLICY
 from src.domains.agentverse.entities.agent import Agent
 from src.domains.agentverse.entities.gui_components import (
     GUI_COMPONENT_TYPES,
@@ -78,15 +79,21 @@ def test_persisted_gui_is_validated_on_the_agent() -> None:
     ],
 )
 def test_reviewed_defaults_mirror_v2_composition(agent_type, role, runtime, expected) -> None:
+    # Default presentation follows the reviewed creation compositions (presentation only).
     components = default_gui_components(
-        agent_type=agent_type, role_name=role, runtime_version=runtime
+        agent_type=agent_type,
+        role_name=role,
+        runtime_version=runtime,
+        conversational=CURRENT_V2_POLICY.creatable(agent_type, role),
     )
     assert [(c.type, c.key, c.default) for c in components] == expected
     GuiComponents(components=components)  # defaults satisfy the structural contract
 
 
 def test_enki_form_presents_its_existing_draft_contract() -> None:
-    form = default_gui_components(agent_type="form", role_name="enki", runtime_version="v2")[0]
+    form = default_gui_components(
+        agent_type="form", role_name="enki", runtime_version="v2", conversational=True
+    )[0]
     assert form.config.source.model_dump() == {
         "kind": "contract",
         "contract": "caos.agent_creation_draft",

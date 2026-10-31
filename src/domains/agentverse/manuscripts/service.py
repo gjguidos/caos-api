@@ -16,7 +16,7 @@ import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 from uuid import NAMESPACE_URL, uuid5
 
 from pydantic import ValidationError
@@ -24,7 +24,13 @@ from pydantic import ValidationError
 from src.base.entities.user import User
 from src.base.events.v2.contracts import EventPermissionError
 from src.base.operations.v2.admission import sha256_hex
-from src.domains.agentverse.agents.creation_drafts.models import AgentDraftCreateRequest
+from src.domains.agentverse.agents.creation_drafts.models import (
+    AgentDraftCreateRequest,
+    CorruptDraft,
+    DraftNotFound,
+    DraftUnavailable,
+)
+from src.domains.agentverse.agents.creation_drafts.references import DraftReference
 from src.domains.agentverse.manuscripts.catalog import ManuscriptCatalog
 from src.domains.agentverse.manuscripts.models import FieldSpec, ManuscriptDefinition, evaluate
 from src.domains.agentverse.manuscripts.registry import ManuscriptRegistry, ManuscriptUnavailable
@@ -34,6 +40,8 @@ from src.domains.agentverse.manuscripts.sessions import (
     Answer,
     AnswerSource,
     AppliedRequest,
+    DraftNotEditable,
+    DraftReferenceUnavailable,
     ManuscriptNotAvailable,
     ManuscriptSession,
     PinnedManuscript,
@@ -44,6 +52,7 @@ from src.domains.agentverse.manuscripts.sessions import (
     SessionInvalidRequest,
     SessionNotFound,
     SessionRevisionConflict,
+    SessionUnavailable,
 )
 from src.domains.agentverse.security.revocation import ExecutionPermit
 from src.domains.agentverse.security.utu import UTUAuthority
@@ -88,6 +97,14 @@ class AnswerOutcome:
     missing: list[str]
 
 
+class DraftReferences(Protocol):
+    """Read-only port to the draft domain: identity, revision and status only."""
+
+    async def reference(
+        self, *, tenant_id: str, subject_id: str, source_agent_id: str, draft_id: str
+    ) -> DraftReference: ...
+
+
 def _key(value: str) -> str:
     if not isinstance(value, str) or not _KEY.fullmatch(value):
         raise SessionInvalidRequest("Invalid request key")
@@ -101,11 +118,14 @@ class ManuscriptService:
         registry: ManuscriptRegistry,
         repository: MongoManuscriptSessionRepository,
         catalog: ManuscriptCatalog,
+        drafts: DraftReferences | None = None,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self._registry = registry
         self._repository = repository
         self._catalog = catalog
+        # Without a reader, any attached draft fails closed (no unchecked binding).
+        self._draft_references = drafts
         self._clock = clock
 
     # --- Start and read ---------------------------------------------------------------------
@@ -151,7 +171,14 @@ class ManuscriptService:
             self._check_owner(existing, actor)
             if existing.start_digest != start_digest:
                 raise SessionIdempotencyConflict("Idempotency key already started another session")
+            # Historical replay: the original session, unchanged. The reference must
+            # still be the actor's, but a later lifecycle change does not rewrite history.
+            if existing.draft_id is not None:
+                await self.draft(actor, existing.draft_id, editable=False)
             return existing, {}
+        if draft_id is not None:
+            # A new interview binding requires the actor's own, editable draft.
+            await self.draft(actor, draft_id, editable=True)
         accepted, rejected = await self._validate_all(definition, prefill, actor.requester)
         now = self._clock()
         answers = {
@@ -181,6 +208,31 @@ class ManuscriptService:
         if not created and stored.start_digest != start_digest:
             raise SessionIdempotencyConflict("Idempotency key already started another session")
         return stored, rejected
+
+    async def draft(
+        self, actor: ManuscriptActor, draft_id: str, *, editable: bool
+    ) -> DraftReference:
+        """Resolve an attached draft for the trusted actor (MANUSCRIPT-0.1C), read-only.
+
+        Missing and not-the-actor's are indistinguishable (``session.draft_unavailable``);
+        ``session.draft_not_editable`` only for the actor's own non-editing draft.
+        """
+        if self._draft_references is None:
+            raise DraftReferenceUnavailable("Draft references are not available")
+        try:
+            reference = await self._draft_references.reference(
+                tenant_id=actor.tenant_id,
+                subject_id=actor.subject_id,
+                source_agent_id=actor.agent_id,
+                draft_id=draft_id,
+            )
+        except (DraftNotFound, CorruptDraft) as exc:
+            raise DraftReferenceUnavailable("Draft not found") from exc
+        except DraftUnavailable as exc:
+            raise SessionUnavailable("Draft store is unavailable") from exc
+        if editable and reference.status != "editing":
+            raise DraftNotEditable("The draft no longer accepts changes")
+        return reference
 
     def definition(self, manuscript: str) -> ManuscriptDefinition:
         """The exact registered Manuscript (``id@version``) or ``manuscript.unavailable``."""
@@ -369,6 +421,9 @@ class ManuscriptService:
         ) -> tuple[dict[str, Any], None]:
             if not self._completable(definition, session):
                 raise SessionIncomplete(self._all_missing(definition, session.values()))
+            if session.draft_id is not None:
+                # A new completion for an attached draft: recheck ownership and state.
+                await self.draft(actor, session.draft_id, editable=True)
             artifact = self.artifact(definition, session.values())
             return {
                 "status": "completed",
@@ -389,10 +444,14 @@ class ManuscriptService:
         session, definition = await self._load(actor, session_id)
         successor_id = str(uuid5(NAMESPACE_URL, f"caos:manuscript-restart:{session.session_id}"))
         if session.status == "restarted":
+            # Historical replay: the recorded successor, unchanged.
             successor = await self._repository.get(actor.tenant_id, session.restarted_to or "")
             if successor is None:
                 raise SessionCorrupt("Restarted session has no successor")
             return successor
+        if session.draft_id is not None:
+            # A new successor re-binds the same draft: it must still be the actor's, editable.
+            await self.draft(actor, session.draft_id, editable=True)
         now = self._clock()
         stage, completed = self._advance(definition, definition.initial_stage, [], {})
         successor = ManuscriptSession.build(

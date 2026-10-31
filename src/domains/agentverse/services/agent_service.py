@@ -30,7 +30,10 @@ from src.domains.agentverse.exceptions import (
 from src.domains.agentverse.logging.logger_v1 import AGENTVERSE_LOGGER, LogDomain
 from src.domains.agentverse.registries import agent_registry_instance as agent_registry
 from src.domains.agentverse.registries import personality_registry_instance as personality_registry
-from src.domains.agentverse.runtime.compatibility import require_v1_runtime
+from src.domains.agentverse.runtime.compatibility import (
+    require_legacy_mutable,
+    require_v1_runtime,
+)
 from src.domains.agentverse.security import agent_access
 from src.domains.agentverse.security.utu import UTUAuthority
 from src.domains.agentverse.services.audit_service import AuditService
@@ -362,6 +365,9 @@ class AgentService:
                 action="update",
                 reason="user lacks write permission",
             )
+        # AGENT-DEF-SEC-0.1: a governed V2 definition changes only through its governed
+        # lifecycle (validation → review → approval → Store), never through this route.
+        require_legacy_mutable(existing)
 
         # Step 3: Validate that the user belongs to any groups they are trying to whitelist
         try:
@@ -534,6 +540,7 @@ class AgentService:
                 action="delete",
                 reason="user lacks write permission",
             )
+        require_legacy_mutable(agent_data)  # AGENT-DEF-SEC-0.1
 
         success = await self.db_service.delete_chat_agent(agent_id)
 

@@ -40,14 +40,25 @@ class V2CompositionPolicy(BaseModel):
     agent_types: frozenset[str] = Field(min_length=1)
     required_backends: frozenset[str]
     role_tools_supported: bool
+    # Reviewed (type, role) creation compositions that may be created without an explicit
+    # ``conversation@1.0.0`` attachment and receive the default Conversation presentation.
+    # Creation shape and presentation only (AGENT-DEF-SEC-0.1): a definition created this
+    # way does NOT converse until the Tool is attached (or its identity is a reviewed
+    # legacy definition). A missing role is ``general``.
+    creation_compositions: frozenset[tuple[str, str]]
+
+    def creatable(self, agent_type: str | None, role_name: str | None) -> bool:
+        return (agent_type or "", role_name or "general") in self.creation_compositions
 
 
-# Chat and the explicitly approved form/enki composition; no role-tool execution.
+# Chat and the explicitly approved form/enki composition; no role-tool execution. The
+# creation compositions are those accepted at CONVERSATION-0.1A (unchanged outcomes).
 CURRENT_V2_POLICY = V2CompositionPolicy(
     runtime_version="v2",
     agent_types=frozenset({"chat", "form"}),
     required_backends=frozenset({"llm"}),
     role_tools_supported=False,
+    creation_compositions=frozenset({("chat", "general"), ("chat", "thoth"), ("form", "enki")}),
 )
 
 

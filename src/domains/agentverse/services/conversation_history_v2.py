@@ -95,7 +95,12 @@ class ConversationHistoryV2:
         agent_id: str,
         *,
         exclude_event_id: str,
+        max_messages: int = 24,
+        max_characters: int = 32768,
     ) -> AgentHistoryViewV2:
+        # The Conversation Tool's history policy may only narrow these bounds.
+        if not (0 <= max_messages <= 24 and 0 <= max_characters <= 32768):
+            raise ValueError("Invalid history policy")
         document = await self.authorize(session, conversation_id, (agent_id,))
         rows = await self.conversations.read_messages(
             session.tenant_id,
@@ -115,7 +120,7 @@ class ConversationHistoryV2:
                 or message.kind not in ("user_message", "agent_response")
             ):
                 continue
-            if len(selected) == 24 or size + len(message.content) > 32768:
+            if len(selected) >= max_messages or size + len(message.content) > max_characters:
                 break
             selected.append(message)
             size += len(message.content)

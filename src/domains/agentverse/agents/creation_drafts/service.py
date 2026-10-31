@@ -322,12 +322,19 @@ class AgentDraftService:
     def _check_owner(
         record: AgentDraftRevision | None, requester: Owner, source_agent_id: str
     ) -> AgentDraftRevision:
-        # Another requester's, tenant's or source's draft is indistinguishable from none.
-        if (
-            record is None
-            or record.tenant_id != requester.tenant_id
-            or record.owner_subject_id != requester.subject_id
-            or record.source_agent_id != source_agent_id
-        ):
-            raise DraftNotFound("Draft not found")
-        return record
+        return owned_record(record, requester.tenant_id, requester.subject_id, source_agent_id)
+
+
+def owned_record(
+    record: AgentDraftRevision | None, tenant_id: str, subject_id: str, source_agent_id: str
+) -> AgentDraftRevision:
+    """The draft ownership rule, shared by every reader of drafts."""
+    # Another requester's, tenant's or source's draft is indistinguishable from none.
+    if (
+        record is None
+        or record.tenant_id != tenant_id
+        or record.owner_subject_id != subject_id
+        or record.source_agent_id != source_agent_id
+    ):
+        raise DraftNotFound("Draft not found")
+    return record

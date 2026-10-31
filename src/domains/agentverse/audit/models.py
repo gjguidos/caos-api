@@ -152,6 +152,42 @@ class AgentCreationReviewMetadata(_Frozen):
     source_agent_id: Identifier
 
 
+class AgentDefinitionRevisionApprovalMetadata(_Frozen):
+    """A human decision on an exact reviewed Agent revision (REV-3); never application
+    authority. Identifiers and digests only: never draft content, the review snapshot,
+    resolved dependencies or model output."""
+
+    event_version: Literal[1]
+    approval_id: Identifier
+    agent_id: Identifier
+    executor_id: Identifier
+    review_id: Identifier
+    review_digest: Digest
+    draft_id: Identifier
+    draft_revision: Annotated[int, Field(strict=True, ge=1)]
+    candidate_definition_digest: Digest
+    predecessor_revision: Annotated[int, Field(strict=True, ge=1)]
+    predecessor_revision_digest: Digest
+    gateway_fingerprint: Digest
+    utu_policy_revision: Identifier
+
+
+class AgentDefinitionRevisionApplicationMetadata(_Frozen):
+    """Selection or application of one approved revision (REV-4). Identities, revision
+    numbers and digests only: never definitions, permits or model output."""
+
+    event_version: Literal[1]
+    application_id: Identifier
+    approval_id: Identifier
+    agent_id: Identifier
+    review_digest: Digest
+    revision: Annotated[int, Field(strict=True, ge=2)]
+    revision_digest: Digest
+    definition_digest: Digest
+    predecessor_revision: Annotated[int, Field(strict=True, ge=1)]
+    predecessor_revision_digest: Digest
+
+
 class AgentCreationMetadata(_Frozen):
     """Governed manual creation of one approved Agent (G3.4). Identifiers and digests
     only; the reviewed snapshot and credentials are never audit metadata."""
@@ -182,6 +218,33 @@ class AgentDraftProposalDecisionMetadata(_Frozen):
     proposal_digest: Digest
     decision_digest: Digest
     content_digest: Digest | None = None
+
+
+class ActivityEvidenceReference(_Frozen):
+    """One typed resource reference of an activity context (identifiers only)."""
+
+    slot: Slot
+    kind: Annotated[StrictStr, AfterValidator(_matches(_CODE, "resource kind"))]
+    resource_id: Identifier
+    revision: Annotated[int, Field(strict=True, ge=1)]
+
+
+class ActivityContextMetadata(_Frozen):
+    """A governed activity-context transition (AGENT-CTX-0.1). References, revisions and
+    fingerprints only; never messages, answers, resource content or model output."""
+
+    event_version: Literal[1]
+    context_id: Identifier
+    activity: Identifier  # exact key@version
+    activity_fingerprint: Digest
+    owner_kind: Annotated[StrictStr, AfterValidator(_matches(_CODE, "owner kind"))]
+    owner_id: Identifier
+    principal_id: Identifier
+    generation: Annotated[int, Field(strict=True, ge=1)]
+    revision: Annotated[int, Field(strict=True, ge=1)]
+    references: Annotated[tuple[ActivityEvidenceReference, ...], Field(max_length=8)]
+    previous_context_id: Identifier | None = None
+    closed_reason: Literal["completed", "switched", "abandoned", "reset"] | None = None
 
 
 Outcome = Literal["succeeded", "failed", "rejected"]
@@ -225,6 +288,18 @@ EVENT_CATALOG: dict[str, _EventSpec] = {
     "agent.creation.authorized": _EventSpec(
         metadata=AgentCreationMetadata, outcomes=frozenset({"succeeded"})
     ),
+    "agent.definition_revision.approved": _EventSpec(
+        metadata=AgentDefinitionRevisionApprovalMetadata, outcomes=frozenset({"succeeded"})
+    ),
+    "agent.definition_revision.withdrawn": _EventSpec(
+        metadata=AgentDefinitionRevisionApprovalMetadata, outcomes=frozenset({"succeeded"})
+    ),
+    "agent.definition_revision.selected": _EventSpec(
+        metadata=AgentDefinitionRevisionApplicationMetadata, outcomes=frozenset({"succeeded"})
+    ),
+    "agent.definition_revision.applied": _EventSpec(
+        metadata=AgentDefinitionRevisionApplicationMetadata, outcomes=frozenset({"succeeded"})
+    ),
     "agent.creation.completed": _EventSpec(
         metadata=AgentCreationMetadata, outcomes=frozenset({"succeeded"})
     ),
@@ -233,6 +308,15 @@ EVENT_CATALOG: dict[str, _EventSpec] = {
     ),
     "agent.draft.proposal.rejected": _EventSpec(
         metadata=AgentDraftProposalDecisionMetadata, outcomes=frozenset({"succeeded"})
+    ),
+    "activity.context.started": _EventSpec(
+        metadata=ActivityContextMetadata, outcomes=frozenset({"succeeded"})
+    ),
+    "activity.context.switched": _EventSpec(
+        metadata=ActivityContextMetadata, outcomes=frozenset({"succeeded"})
+    ),
+    "activity.context.closed": _EventSpec(
+        metadata=ActivityContextMetadata, outcomes=frozenset({"succeeded"})
     ),
 }
 EventType = Literal[
@@ -247,8 +331,15 @@ EventType = Literal[
     "agent.creation_review.revoked",
     "agent.creation.authorized",
     "agent.creation.completed",
+    "agent.definition_revision.approved",
+    "agent.definition_revision.withdrawn",
+    "agent.definition_revision.selected",
+    "agent.definition_revision.applied",
     "agent.draft.proposal.accepted",
     "agent.draft.proposal.rejected",
+    "activity.context.started",
+    "activity.context.switched",
+    "activity.context.closed",
 ]
 
 
@@ -260,7 +351,7 @@ EventType = Literal[
 class LogSubject(_Frozen):
     """The resource the event is about (e.g. the Enki definition)."""
 
-    resource_type: Literal["agent"]
+    resource_type: Literal["agent", "activity_context"]
     resource_id: Identifier | None = None
 
 

@@ -96,6 +96,43 @@ present it writes nothing and records no evidence (tested: a second bootstrap re
 `present` with unchanged Agents and Seshat). Config-only edits (`config/*.json`) do not
 reload the process; `runtime.policy_drift` reveals a stale process.
 
+## Conversation composition diagnostic (CONVERSATION-0.1A)
+
+Implemented, uncommitted. `inspect` / `reconcile` report how each V2 definition's
+conversation is composed ([Conversation Tool](CONVERSATION_TOOL.md) §6):
+
+| Resource or finding | Meaning |
+| --- | --- |
+| `conversation` resource, `conversation:<agent>` | Status `passed`. Facts: `source` (`tool` = explicit `conversation@1.0.0`, `legacy` = temporary compatibility), `implicit`, `compatibility` (entry ID), `modes`, `activities`, and `retire_by` when implicit |
+| `conversation.attachment_invalid` (warning) | An explicit attachment cannot compose (duplicate, unpublished version, invalid configuration); conversation fails closed |
+
+- **Safety:** observation reads only Conversation Tool attachments from `coll_agents`.
+  Grants, signals, scopes, providers and other Tool configurations are never reported.
+- **Not reported:** non-conversational Agents. Implicit compatibility does not degrade a
+  healthy report.
+- **Expected live result (inspection not run in this task):** Enki, Thoth and Nabu
+  report `implicit: true` until governed revision attaches the Tool.
+
+## Definition history inspection (REV-1, REV-5)
+
+Implemented, uncommitted. `inspect` reports one `definition_baseline` resource per
+governed definition (`agents/definition_revisions/inspection.py`):
+
+- **Never revised:** the REV-1 creation-baseline verifier.
+- **Revised:** the immutable chain must be contiguous and correctly linked, revision 1
+  must carry the creation evidence unchanged (`store` request digest and scope), and the
+  projection must equal the applied revision.
+- **Facts:** `history` (`baseline_only`, `baseline_materialized`, `applied`,
+  `selected_unapplied`), `head_revision`, `applied_revision`, `incomplete_applications`,
+  `missing_evidence` and `runtime: per_turn`.
+- **Codes:** `chain.*`, `projection.direct_mutation`, `projection.unknown_revision`,
+  `creation_evidence.changed`, `identity.duplicate`, `revision.selected_unapplied`,
+  `application.incomplete` and `application.missing_evidence`.
+- **Status:** contradictions are `conflicted` (failed); in-flight states are
+  `unverified` (warning). A valid applied revision is `verified`.
+- **Read-only:** inspection reads `coll_agents`, revisions and application claims and
+  never recovers or writes.
+
 ## Verification results (2026-10-30)
 
 DEV-0.2 `verify` against a disposable Redis: all nine areas passed (adding "Genesis/Khepri

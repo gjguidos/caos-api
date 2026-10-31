@@ -7,7 +7,24 @@ from uuid import uuid4
 from dependency_injector import containers, providers
 
 from src.base.dependencies.di_container import Container as BaseContainer
+from src.domains.agentverse.activities.repository import MongoActivityContextRepository
 from src.domains.agentverse.manuscripts.repository import MongoManuscriptSessionRepository
+from src.domains.agentverse.agents.conversational_composition_v2 import ConversationGate
+from src.domains.agentverse.agents.definition_revisions.application import (
+    MongoRevisionApplicationRepository,
+)
+from src.domains.agentverse.agents.definition_revisions.approval import (
+    MongoRevisionApprovalRepository,
+)
+from src.domains.agentverse.agents.definition_revisions.drafts import (
+    MongoRevisionDraftRepository,
+)
+from src.domains.agentverse.agents.definition_revisions.repository import (
+    MongoAgentDefinitionRevisionRepository,
+)
+from src.domains.agentverse.agents.definition_revisions.review import (
+    MongoRevisionReviewRepository,
+)
 from src.domains.agentverse.agents.creation_drafts.proposal_repository import (
     MongoAgentDraftProposalRepository,
 )
@@ -195,6 +212,36 @@ class AgentverseContainer(containers.DeclarativeContainer):
         mongodb_repository=mongodb_repository,
     )
 
+    # Governed activity contexts (AGENT-CTX-0.1); references only, grants nothing.
+    activity_context_repository = providers.Singleton(
+        MongoActivityContextRepository,
+        mongodb_repository=mongodb_repository,
+    )
+    # REV-1/REV-2: insert-only definition revisions, revision drafts and reviews.
+    # Construction opens nothing; no revision is approved or applied (REV-3/REV-4).
+    definition_revision_repository = providers.Singleton(
+        MongoAgentDefinitionRevisionRepository,
+        mongodb_repository=mongodb_repository,
+    )
+    revision_draft_repository = providers.Singleton(
+        MongoRevisionDraftRepository,
+        mongodb_repository=mongodb_repository,
+    )
+    revision_review_repository = providers.Singleton(
+        MongoRevisionReviewRepository,
+        mongodb_repository=mongodb_repository,
+    )
+    # REV-3: human approvals of exact reviews; never an application.
+    revision_approval_repository = providers.Singleton(
+        MongoRevisionApprovalRepository,
+        mongodb_repository=mongodb_repository,
+    )
+    # REV-4: application claims (one per predecessor); written only via the Store signal.
+    revision_application_repository = providers.Singleton(
+        MongoRevisionApplicationRepository,
+        mongodb_repository=mongodb_repository,
+    )
+
     orchestrator = providers.Singleton(
         UniversalOrchestrator,
     )
@@ -353,12 +400,15 @@ class AgentverseContainer(containers.DeclarativeContainer):
         ConversationRepositoryV2,
         repository=redis_repository,
     )
+    # CONVERSATION-0.1A: registry-driven conversation composition over trusted definitions.
+    conversation_gate = providers.Singleton(ConversationGate, definitions=db_service)
     client_event_dispatcher_v2 = providers.Singleton(
         ClientEventDispatcherV2,
         conversations=conversation_repository_v2,
         authority=utu_authority,
         khepri=khepri,
         instances=instance_registry_v2,
+        composition=conversation_gate,
     )
 
     divine_orchestration_service = providers.Factory(
@@ -525,6 +575,12 @@ def extend_container(
     ns.agent_draft_repository = av.agent_draft_repository
     ns.agent_draft_proposal_repository = av.agent_draft_proposal_repository
     ns.manuscript_session_repository = av.manuscript_session_repository
+    ns.activity_context_repository = av.activity_context_repository
+    ns.definition_revision_repository = av.definition_revision_repository
+    ns.revision_draft_repository = av.revision_draft_repository
+    ns.revision_review_repository = av.revision_review_repository
+    ns.revision_approval_repository = av.revision_approval_repository
+    ns.revision_application_repository = av.revision_application_repository
 
     # ------------------------------------------------------------------
     # Backwards-compatible aliases

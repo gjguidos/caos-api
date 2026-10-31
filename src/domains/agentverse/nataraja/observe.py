@@ -126,6 +126,8 @@ class Observation:
     # What the running API process reports about itself; None = unavailable.
     runtime: dict[str, Any] | None = None
     unreachable: list[str] = field(default_factory=list)
+    # REV-1: safe baseline-verification summaries of governed definitions (no content).
+    definition_baselines: list[dict[str, Any]] = field(default_factory=list)
 
 
 def environment_identity() -> dict[str, Any]:
@@ -215,8 +217,16 @@ async def observe(
         return observation
     try:
         observation.collections = await mongo.collections()
-        projection = {"_id": 0, **{name: 1 for name in _AGENT_FIELDS}, "store": 1}
+        projection = {"_id": 0, **{name: 1 for name in _AGENT_FIELDS}, "store": 1, "tools": 1}
         for document in await mongo.find(AGENTS_COLLECTION, {"tenant_id": tenant_id}, projection):
+            # Only Conversation Tool attachments are observed (CONVERSATION-0.1A); other
+            # Tool configurations never enter an observation.
+            tools = document.pop("tools", None)
+            document["tools"] = (
+                [t for t in tools if isinstance(t, dict) and t.get("key") == "conversation"]
+                if isinstance(tools, list)
+                else tools
+            )
             store = document.pop("store", None) or {}
             authorization = store.get("authorization") or {}
             document["store"] = (
@@ -231,6 +241,7 @@ async def observe(
                 else None
             )
             observation.agents.append(document)
+        observation.definition_baselines = await _definition_baselines(mongo, tenant_id)
         for document in await mongo.find(OPERATIONS_COLLECTION, {}):
             try:
                 operation = managed_from_document(document).snapshot
@@ -267,3 +278,45 @@ async def observe(
     except Exception:  # noqa: BLE001 - unreachable store is reported, not hidden
         observation.unreachable.append("mongo")
     return observation
+
+
+async def _definition_baselines(mongo: ReadOnlyMongo, tenant_id: str) -> list[dict[str, Any]]:
+    """REV-1/REV-5, read-only: each governed definition against its creation evidence and,
+    once revised, its immutable revision chain and application claims.
+
+    Full documents stay in this function; only safe summaries (statuses, codes, digests)
+    leave it. Holders of each ID are read across tenants so duplicates are visible.
+    Nothing is written: no baseline record, index or projection.
+    """
+    from src.domains.agentverse.agents.definition_revisions.application import (
+        APPLICATIONS_COLLECTION,
+    )
+    from src.domains.agentverse.agents.definition_revisions.inspection import inspect_definition
+    from src.domains.agentverse.agents.definition_revisions.models import REVISIONS_COLLECTION
+    from src.domains.agentverse.runtime.compatibility import is_governed_definition
+
+    documents = await mongo.find(AGENTS_COLLECTION, {"tenant_id": tenant_id}, {"_id": 0})
+    governed = {
+        document["id"]: str(document.get("name"))
+        for document in documents
+        if is_governed_definition(document) and isinstance(document.get("id"), str)
+    }
+    if not governed:
+        return []
+    holders = await mongo.find(AGENTS_COLLECTION, {"id": {"$in": sorted(governed)}}, {"_id": 0})
+    # REV-5: the revision chain and application claims (read-only, tenant-scoped).
+    revisions = await mongo.find(REVISIONS_COLLECTION, {"tenant_id": tenant_id}, {"_id": 0})
+    applications = await mongo.find(APPLICATIONS_COLLECTION, {"tenant_id": tenant_id}, {"_id": 0})
+    return [
+        {
+            "name": name,
+            **inspect_definition(
+                tenant_id,
+                agent_id,
+                [d for d in holders if d.get("id") == agent_id],
+                [r for r in revisions if r.get("agent_id") == agent_id],
+                applications,
+            ),
+        }
+        for agent_id, name in sorted(governed.items())
+    ]

@@ -262,6 +262,7 @@ def test_policy_is_explicit_and_runtime_version_cannot_be_v1() -> None:
             agent_types=frozenset({"chat"}),
             required_backends=frozenset({"llm"}),
             role_tools_supported=False,
+            creation_compositions=frozenset({("chat", "general")}),
         )
 
 

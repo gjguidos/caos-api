@@ -15,6 +15,7 @@ from src.domains.agentverse.dependencies.get_pdf_ingestion_orchestration_service
 )
 from src.domains.agentverse.entities.collection import CollectionCreateMetadata
 from src.domains.agentverse.exceptions import PDFIngestionError
+from src.domains.agentverse.runtime.compatibility import GovernedDefinitionError
 from src.domains.agentverse.services.pdf_ingestion_orchestration_service import (
     PDFIngestionOrchestrator,
 )
@@ -80,6 +81,9 @@ async def ingest_document(
     except PDFIngestionError as e:
         logger.warning(f"PDF ingestion error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
+
+    except GovernedDefinitionError:
+        raise  # AGENT-DEF-SEC-0.1: stable typed 409, not an internal error.
 
     except Exception:
         logger.exception("Unexpected error during ingestion")

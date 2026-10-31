@@ -5,7 +5,7 @@ from __future__ import annotations
 import inspect
 import json
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -90,12 +90,27 @@ def build_genesis_security(container: Container) -> dict[str, GenesisSecurityBin
                 ValidationGatewayBinding.model_validate(item)
                 for item in config.get("creation_gateways", [])
             ),
+            revision_gateways=_revision_gateways(config.get("revision_gateways", []), citizens),
             authorization=SynapticAuthorization(
                 grants=grants,
                 trusted_lines=[TrustedLine(**item) for item in config.get("trusted_lines", [])],
             ),
         )
     }
+
+
+def _revision_gateways(items: Any, citizens: Mapping[tuple[str, str], Any]) -> tuple[Any, ...]:
+    """REV-2 bindings; each executor must be a declared System Citizen of its tenant."""
+    from src.domains.agentverse.agents.definition_revisions.gateway import RevisionGatewayBinding
+
+    if not isinstance(items, list):
+        raise TypeError("Revision gateways must be a list")
+    bindings = tuple(RevisionGatewayBinding.model_validate(item) for item in items)
+    if len({(b.tenant_id, b.subject_id) for b in bindings}) != len(bindings):
+        raise ValueError("Duplicate revision gateway binding")
+    if any((b.tenant_id, b.executor_id) not in citizens for b in bindings):
+        raise ValueError("A revision gateway executor must be a System Citizen")
+    return bindings
 
 
 def _handoffs(items: Any) -> tuple[GenesisHandoff, ...]:
@@ -204,6 +219,10 @@ def configure_genesis_transport(app: FastAPI, bindings: GenesisSecurityBindings)
 
         av = app.container.agentverse
         av.utu_authority()
+        from src.domains.agentverse.tools.conversation_tool import validate_conversation_tool
+
+        # CONVERSATION-0.1A: the registered Conversation Tool declaration must be exact.
+        validate_conversation_tool()
         if any(
             "chat.response" in grant.invoke for grant in bindings.authorization._grants.values()
         ):
@@ -212,6 +231,8 @@ def configure_genesis_transport(app: FastAPI, bindings: GenesisSecurityBindings)
                 authority=av.utu_authority(),
                 history=av.client_event_dispatcher_v2().history,
                 client_factory=lambda: getattr(app.state, "client_factory", None),
+                # The dispatcher's gate, so activity binding below reaches both.
+                composition=getattr(av.client_event_dispatcher_v2(), "composition", None),
             )
             synaptic_registry_instance.subscribe(SIGNAL, provider="cognitive.chat")(
                 responder.handle
@@ -354,10 +375,143 @@ def configure_genesis_transport(app: FastAPI, bindings: GenesisSecurityBindings)
                 manuscripts=manuscript_registry_instance,
                 manuscript_visible=gateway_manuscript_visibility(bindings.validation_gateways),
             )
+            from src.domains.agentverse.agents.creation_drafts.references import (
+                DraftReferenceReader,
+            )
+
             app.state.manuscripts = ManuscriptService(
                 registry=manuscript_registry_instance,
                 repository=av.manuscript_session_repository(),
                 catalog=GovernedManuscriptCatalog(app.state.resource_catalog),
+                # MANUSCRIPT-0.1C: read-only draft references (identity, revision, status).
+                drafts=DraftReferenceReader(av.agent_draft_repository()),
+            )
+            from src.domains.agentverse.activities.owners import ConversationOwner
+            from src.domains.agentverse.activities.registry import (
+                ActivityContractRegistry,
+                ResourceResolverRegistry,
+            )
+            from src.domains.agentverse.activities.service import ActivityContextService
+            from src.domains.agentverse.agents.creation_drafts.activity import (
+                AGENT_CREATION_INTERVIEW,
+                CreationDraftResolver,
+                DraftProposalResolver,
+            )
+            from src.domains.agentverse.manuscripts.activity import ManuscriptSessionResolver
+
+            # AGENT-CTX-0.1: shared, governed activity contexts. Resolvers are registered
+            # by each resource's owning domain; contracts are exact and frozen. No route,
+            # signal or grant; nothing is read or written at startup.
+            activity_resolvers = ResourceResolverRegistry()
+            activity_resolvers.register(ManuscriptSessionResolver(app.state.manuscripts))
+            activity_resolvers.register(
+                CreationDraftResolver(DraftReferenceReader(av.agent_draft_repository()))
+            )
+            activity_resolvers.register(DraftProposalResolver(av.agent_draft_proposal_repository()))
+            activity_resolvers.freeze()
+            dispatcher_gate = getattr(av.client_event_dispatcher_v2(), "composition", None)
+            activity_owners = {
+                "conversation.v2": ConversationOwner(
+                    conversations=av.conversation_repository_v2(),
+                    authority=av.utu_authority(),
+                    # REV-5: new generations need the Agent's current declaration.
+                    activities=None
+                    if dispatcher_gate is None
+                    else dispatcher_gate.declared_activities,
+                )
+            }
+            activity_contracts = ActivityContractRegistry(
+                activity_resolvers, frozenset(activity_owners)
+            )
+            activity_contracts.register(AGENT_CREATION_INTERVIEW)
+            activity_contracts.freeze()
+            # Conversation Tool configurations may declare these exact contracts; the
+            # Activity Context service itself does not depend on the Conversation Tool.
+            conversation_gate = getattr(av.client_event_dispatcher_v2(), "composition", None)
+            if conversation_gate is not None:
+                conversation_gate.bind_activities(activity_contracts)
+            # REV-2: governed revision authoring and review, only when the reviewed policy
+            # declares revision gateways. No approval or application exists (REV-3/REV-4).
+            if bindings.revision_gateways and conversation_gate is not None:
+                from src.domains.agentverse.agents.composition import AgentComposer
+                from src.domains.agentverse.agents.definition_revisions.gateway import (
+                    AgentRevisionGateway,
+                )
+                from src.domains.agentverse.agents.definition_revisions.service import (
+                    AgentDefinitionRevisionService,
+                )
+
+                definitions = av.db_service()
+
+                async def holders(agent_id: str) -> list[dict[str, Any]]:
+                    return list(await definitions.find_all(query={"id": agent_id}))
+
+                app.state.agent_definition_revisions = AgentDefinitionRevisionService(
+                    gateway=AgentRevisionGateway(
+                        bindings=bindings.revision_gateways,
+                        authority=av.utu_authority(),
+                        exchange=av.synaptic_exchange(),
+                        composer=AgentComposer(
+                            catalog=lambda: getattr(app.state, "client_factory", None)
+                        ),
+                    ),
+                    holders=holders,
+                    revisions=av.definition_revision_repository(),
+                    drafts=av.revision_draft_repository(),
+                    reviews=av.revision_review_repository(),
+                    provisions=bindings.provisions,
+                    conversation=conversation_gate.resolve,
+                )
+                from src.domains.agentverse.agents.definition_revisions.approval import (
+                    RevisionApprovalService,
+                )
+
+                # REV-3: human decisions only; no application signal, grant or Store write.
+                app.state.agent_definition_revision_approvals = RevisionApprovalService(
+                    revisions=app.state.agent_definition_revisions,
+                    repository=av.revision_approval_repository(),
+                    audit=av.caos_log_service(),
+                )
+                from src.domains.agentverse.agents.definition_revisions.application import (
+                    REVISE_SIGNAL,
+                )
+
+                # REV-4: registered only when the reviewed policy grants the exact signal
+                # (Genesis only). No trusted line; Khepri is never involved.
+                if any(REVISE_SIGNAL in grant.invoke for grant in policy._grants.values()):
+                    from src.domains.agentverse.agents.definition_revisions.application import (
+                        AgentProjection,
+                        RevisionApplicationService,
+                        RevisionStoreCapability,
+                        register_store_revise_approved,
+                    )
+
+                    register_store_revise_approved(
+                        synaptic_registry_instance,
+                        RevisionStoreCapability(
+                            authority=av.utu_authority(),
+                            applications=av.revision_application_repository(),
+                            approvals=app.state.agent_definition_revision_approvals,
+                            reviews=av.revision_review_repository(),
+                            revisions=av.definition_revision_repository(),
+                            projection=AgentProjection(av.mongodb_repository()),
+                        ),
+                    )
+                    app.state.agent_definition_revision_applications = RevisionApplicationService(
+                        revisions=app.state.agent_definition_revisions,
+                        approvals=app.state.agent_definition_revision_approvals,
+                        applications=av.revision_application_repository(),
+                        operations=app.container.operations.managed_operation_repository_v2(),
+                        authority=av.utu_authority(),
+                        exchange=av.synaptic_exchange(),
+                        audit=av.caos_log_service(),
+                    )
+            app.state.activity_contexts = ActivityContextService(
+                repository=av.activity_context_repository(),
+                contracts=activity_contracts,
+                resolvers=activity_resolvers,
+                owners=activity_owners,
+                audit=av.caos_log_service(),
             )
             # Enki's governed Manuscript signals, registered only when the reviewed policy
             # grants one (MANUSCRIPT-0.1A); visibility follows the validation gateways.

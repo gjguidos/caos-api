@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
+from src.domains.agentverse.agents.definition_revisions.gateway import RevisionGatewayBinding
 from src.domains.agentverse.agents.genesis.bootstrap import GenesisBootstrap
 from src.domains.agentverse.agents.genesis.initiation import GenesisHandoff
 from src.domains.agentverse.agents.lifecycle.agent_principal_resolver import (
@@ -35,3 +36,6 @@ class GenesisSecurityBindings:
     validation_gateways: tuple[ValidationGatewayBinding, ...] = ()
     # Reviewed (tenant, user, source Agent) → executor bindings for governed creation.
     creation_gateways: tuple[ValidationGatewayBinding, ...] = ()
+    # REV-2: reviewed (tenant, user) → executor bindings for Agent revision validation.
+    # Attenuates the executor's existing data.validation grant; adds no grant.
+    revision_gateways: tuple[RevisionGatewayBinding, ...] = ()

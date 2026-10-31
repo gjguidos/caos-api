@@ -114,10 +114,30 @@ retain Genesis's authenticated, durable, no-eviction Redis configuration.
   gates. The socket checks session validity and connection ownership every 250 ms,
   and checks again before output. Redis loss fails closed.
 - Cancellation unwinds deterministic execution before completing its journal.
-  Process death or uncertain journal completion leaves the conversation turn
-  fenced, rather than allowing a second worker to overlap unknown work. There is
-  intentionally no automatic stale-turn unlock. Trusted recovery must establish
-  quiescence before resolving the pending event; no public recovery API is added.
+- **Turn leases and recovery (CONV-REC-0.1, implemented and verified 2026-10-31;
+  supersedes the earlier "no automatic stale-turn unlock" rule).** The in-flight turn
+  is an owned lease (`caos.communication.turn` v2: identity, fence, owner token, ceiling)
+  stored with a 15 s Redis TTL. The dispatcher renews it every 5 s; renewal never extends
+  past the ceiling (60 s maximum turn + 15 s finalization grace from admission). A
+  monotonic per-conversation fence is issued at admission. Journal result and transcript
+  commit in one script only for the live lease's exact identity, fence and owner, and
+  release it. If renewal fails or storage is unreadable, the worker is cancelled and
+  returns only what the journal records.
+- **Crash recovery is lazy.** On the next admission or replay in that conversation,
+  an expired attempt's journal entry is settled to an immutable
+  `event.error{code: "interrupted", outcome: "unknown"}`. Pre-lease locks (no TTL) are
+  recovered the same way. Nothing is re-executed. Replaying the event returns the recorded
+  result; a retry is a new event ID. There is no background recovery worker or public
+  recovery API.
+- **Limits.** Expiry does not prove that the attempt's side effects failed or stopped:
+  a paused or partitioned process may still be running external work. Fencing protects
+  only this transport's journal and transcript; consequential operations must be
+  idempotent and revision-checked themselves
+  ([PTAH-0.0 §3.6](PTAH_0_0_INTERACTION_CONTRACTS.md)). There is no atomicity between
+  Redis and Mongo.
+- `ConversationRepositoryV2.owns(lease)` (used by the AGENT-CTX-0.1 `conversation.v2` owner) is a read-only check that a lease
+  is still the live, owned turn. Other stores use it before turn-scoped writes; it renews
+  nothing.
 
 ## Opt-in browser client
 
@@ -183,7 +203,7 @@ conversation participation.
 API checkout (relative paths):
 
 - `src/domains/agentverse/entities/conversation_v2.py` — conversation and message contracts.
-- `src/domains/agentverse/repositories/conversation_v2.py` — persisted documents, turn journal and connection leases.
+- `src/domains/agentverse/repositories/conversation_v2.py` — persisted documents, turn journal, connection leases and (CONV-REC-0.1) fenced turn leases with lazy recovery.
 - `src/domains/agentverse/services/client_event_dispatcher_v2.py` — authorized lifecycle/CPBX dispatch.
 - `src/domains/agentverse/interfaces/api/v2/communication.py` — ticket/conversation HTTP API and V2 WebSocket.
 - `src/domains/agentverse/security/sessions.py` — issue/redeem one-use caller-bound tickets.
@@ -225,3 +245,20 @@ unique development Redis test keys, without changing its live source mount.
 - No commit was created. Live browser/UI mounting and deployed-service testing
   were not performed; the registered ASGI WebSocket path is covered end to end
   through real session authority, Redis, UTU, Khepri, runtime and CPBX.
+
+## Definition binding and runtime instances (REV-5)
+
+Implemented, uncommitted
+([ADR-0005 §17](architecture/decisions/ADR-0005-governed-agent-definition-revision.md)).
+
+- **Admission:** each turn binds the authoritative Agent definition at admission. The
+  binding is verified again immediately before `chat.context` / `chat.response`
+  execution, including by the provider against its own read.
+- **On change:** a change yields `event.error` `definition_changed` with
+  `retryable: true`. The journaled outcome is immutable, so replaying the same event
+  returns it and never re-executes; a new event ID is a new turn.
+- **Journal:** successful outcomes carry `definitions`.
+- **Unchanged:** leases, fencing, `interrupted` / `unknown` recovery and journal
+  immutability are exactly CONV-REC-0.1.
+- **Khepri and instances:** `ManagedAgentV2` and Khepri hold no definitions. There is
+  nothing to mark stale or restart, and lifecycle authority is unchanged.

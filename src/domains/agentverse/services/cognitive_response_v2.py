@@ -10,7 +10,11 @@ from typing import Any
 
 from src.base.events.v2.contracts import EventPermissionError
 from src.base.infrastructure.ai.llm_usage import collect_llm_usage
-from src.domains.agentverse.agents.conversational_composition_v2 import supports_v2_conversation
+from src.domains.agentverse.agents.conversational_composition_v2 import (
+    ConversationGate,
+    ConversationUnavailable,
+    bind_definition,
+)
 from src.domains.agentverse.entities.cognitive_v2 import (
     AgentCognitiveProfile,
     CognitiveContext,
@@ -59,11 +63,15 @@ class CognitiveResponseV2:
         authority: UTUAuthority,
         history: ConversationHistoryV2,
         client_factory: Callable[[], Any],
+        composition: ConversationGate | None = None,
     ) -> None:
         self.definitions = definitions
         self.authority = authority
         self.history = history
         self.client_factory = client_factory
+        # Registry-driven conversation composition (CONVERSATION-0.1A). Unbound activity
+        # contracts fail closed; trusted startup shares the bound gate.
+        self.composition = composition or ConversationGate(definitions=definitions)
 
     async def handle(self, synapse: Synapse, client: AuthorizedSynapticClient) -> dict[str, Any]:
         # Identity and session come exclusively from the CPBX-issued permit.
@@ -78,7 +86,10 @@ class CognitiveResponseV2:
         if SIGNAL not in self.authority.grants_for(principal).invoke:
             raise EventPermissionError("LLM invocation grant required")
         payload = synapse.payload
-        if set(payload) != {"conversation_id", "text"}:
+        if set(payload) not in (
+            {"conversation_id", "text"},
+            {"conversation_id", "text", "definition"},
+        ):
             raise ValueError("Invalid response payload")
         turn = CognitiveTurn(
             id=synapse.correlation_id,
@@ -90,9 +101,6 @@ class CognitiveResponseV2:
             correlation_id=synapse.correlation_id,
             causation_id=synapse.causation_id or synapse.correlation_id,
         )
-        history = await self.history.project(
-            session, turn.conversation_id, turn.agent_id, exclude_event_id=turn.id
-        )
         definition = await self.definitions.find_by_id(turn.agent_id)
         if not definition or definition.get("runtime_version") != "v2":
             raise EventPermissionError("Explicit V2 definition required")
@@ -100,8 +108,25 @@ class CognitiveResponseV2:
             definition.get("tenant_id", turn.tenant_id) != turn.tenant_id
         ):
             raise EventPermissionError("Definition scope mismatch")
-        if not supports_v2_conversation(definition.get("type"), definition.get("role_name")):
-            raise CognitiveResponseUnavailable("composition_unavailable")
+        try:
+            # REV-5: this single read is both the freshness check and the definition the
+            # inference runs on; a dispatcher binding that differs means it changed.
+            bound = payload.get("definition")
+            if bound is not None and (
+                bind_definition(turn.tenant_id, turn.agent_id, definition).wire() != bound
+            ):
+                raise CognitiveResponseUnavailable("definition_changed")
+            policy = self.composition.resolve(definition).require("llm").history
+        except ConversationUnavailable as exc:
+            raise CognitiveResponseUnavailable(exc.code) from None
+        history = await self.history.project(
+            session,
+            turn.conversation_id,
+            turn.agent_id,
+            exclude_event_id=turn.id,
+            max_messages=policy.max_messages,
+            max_characters=policy.max_characters,
+        )
         try:
             role_key = role_registry_instance.resolve_key(
                 definition.get("role_name") or "general", kind="role"

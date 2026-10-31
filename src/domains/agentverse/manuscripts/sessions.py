@@ -73,6 +73,19 @@ class SessionCorrupt(ManuscriptError):
     code = "session.corrupt"
 
 
+class DraftReferenceUnavailable(ManuscriptError):
+    """The attached draft is missing or not the actor's (tenant, owner, source Agent):
+    indistinguishable (MANUSCRIPT-0.1C)."""
+
+    code = "session.draft_unavailable"
+
+
+class DraftNotEditable(ManuscriptError):
+    """The actor's own draft exists but its lifecycle no longer permits editing."""
+
+    code = "session.draft_not_editable"
+
+
 class SessionUnavailable(ManuscriptError):
     code = "session.unavailable"
     retryable = True

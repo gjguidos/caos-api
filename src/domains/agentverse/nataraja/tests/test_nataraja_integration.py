@@ -89,6 +89,13 @@ async def test_inspection_is_read_only_and_tracks_the_genesis_lifecycle(local_ap
             "agent.runtime_presence",
         }
         assert resources[THOTH]["status"] == "deferred"
+        # REV-1: the Genesis-created Enki's creation baseline verifies, read-only.
+        baseline = resources[f"baseline:{ENKI}"]
+        assert (baseline["status"], baseline["baseline_status"], baseline["revision_ready"]) == (
+            "passed",
+            "verified",
+            True,
+        )
         assert {
             r["name"]: r["status"] for r in report["resources"] if r["kind"] == "system_citizen"
         } == {

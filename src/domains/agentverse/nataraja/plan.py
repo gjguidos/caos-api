@@ -11,6 +11,7 @@ from collections.abc import Sequence
 from typing import Any, Literal, cast
 
 from src.base.operations.v2.admission import sha256_hex
+from src.domains.agentverse.agents.conversational_composition_v2 import resolve_conversation
 from src.domains.agentverse.agents.creation_drafts.capability import (
     PROPOSE_PROVIDER,
     PROPOSE_SIGNAL,
@@ -53,6 +54,7 @@ DECLARED_PROVIDERS: dict[str, tuple[str, str]] = {
     STORE_CREATE_SIGNAL: (STORE_PROVIDER, STORE_CREATE_VERSION),
     STORE_CREATE_PROVISIONED_SIGNAL: (STORE_PROVIDER, STORE_CREATE_PROVISIONED_VERSION),
     STORE_CREATE_APPROVED_SIGNAL: (STORE_PROVIDER, STORE_CREATE_APPROVED_VERSION),
+    "store.revise.approved": (STORE_PROVIDER, "1.0.0"),  # REV-4, when granted
     **{signal: (GENESIS_PROVIDER, GENESIS_VERSION) for signal in GENESIS_SIGNALS.values()},
     PROPOSE_SIGNAL: (PROPOSE_PROVIDER, PROPOSE_VERSION),
     **{signal: (MANUSCRIPT_PROVIDER, MANUSCRIPT_VERSION) for signal in MANUSCRIPT_SIGNALS.values()},
@@ -143,6 +145,8 @@ def evaluate(
     for expected in manifest.agents:
         _agent(b, manifest, o, expected, agents.get(expected.agent_id))
     _unmanaged(b, manifest, o)
+    _conversation(b, o)
+    _baselines(b, o)
     _evidence(b, o)
     _manual_creation(b, manifest, o)
     _runtime(b, manifest, o)
@@ -543,6 +547,96 @@ def _unmanaged(b: _Builder, manifest: EnvironmentManifest, o: Observation) -> No
                 str(identity),
                 "warning",
                 "Agent is outside the manifest and was not created through Store",
+            )
+
+
+def _presents_chat(document: dict[str, Any]) -> bool:
+    try:
+        return any(c.type == "chat" for c in effective_gui_components(document))
+    except ValueError:  # Malformed GUI is reported by the Agent checks, not here.
+        return False
+
+
+def _conversation(b: _Builder, o: Observation) -> None:
+    """CONVERSATION-0.1A: how each V2 definition's conversation is composed.
+
+    Safe facts only (source, compatibility entry, modes, activity keys): never grants,
+    signals, scopes, providers or other Tool configuration. Implicit legacy compatibility
+    is reported so it can be retired once governed revision attaches the Tool.
+    """
+    for document in o.agents:
+        if document.get("runtime_version") != "v2":
+            continue
+        composition = resolve_conversation(document)
+        identity = str(document.get("id"))
+        resource = f"conversation:{identity}"
+        if composition.config is not None:
+            b.resource(
+                "conversation",
+                resource,
+                str(document.get("name")),
+                "passed",
+                source=composition.source,
+                implicit=composition.source == "legacy",
+                compatibility=composition.compatibility,
+                modes=sorted(composition.config.modes),
+                activities=list(composition.config.activities),
+                retire_by=(
+                    "governed definition revision attaching conversation@1.0.0"
+                    if composition.source == "legacy"
+                    else None
+                ),
+            )
+        elif composition.source == "tool":
+            b.resource(
+                "conversation", resource, str(document.get("name")), "warning", source="tool"
+            )
+            b.finding(
+                "conversation.attachment_invalid",
+                resource,
+                "warning",
+                "Attached Conversation Tool cannot be composed; conversation fails closed",
+                reason=composition.reason,
+            )
+        elif _presents_chat(document):
+            # AGENT-DEF-SEC-0.1: e.g. a new chat Agent created without the Tool. It
+            # presents Conversation, but compatibility is identity-bound: turns fail closed.
+            b.resource(
+                "conversation", resource, str(document.get("name")), "warning", source="none"
+            )
+            b.finding(
+                "conversation.presented_without_composition",
+                resource,
+                "warning",
+                "Conversation is presented but not composed; attach conversation@1.0.0 "
+                "through governed revision",
+            )
+
+
+_BASELINE_STATUS: dict[str, Status] = {
+    "verified": "passed",
+    "unavailable": "deferred",
+    "unverified": "warning",
+    "conflicted": "failed",
+}
+
+
+def _baselines(b: _Builder, o: Observation) -> None:
+    """REV-1: whether each governed definition's creation baseline can be verified, i.e.
+    whether a future governed revision could safely start from it. Read-only facts."""
+    for summary in o.definition_baselines:
+        facts = {k: v for k, v in summary.items() if k not in ("agent_id", "name", "status")}
+        facts["baseline_status"] = summary.get("status")
+        resource = f"baseline:{summary['agent_id']}"
+        status = _BASELINE_STATUS.get(str(summary.get("status")), "failed")
+        b.resource("definition_baseline", resource, str(summary.get("name")), status, **facts)
+        if summary.get("status") in ("unverified", "conflicted"):
+            b.finding(
+                f"definition_baseline.{summary['status']}",
+                resource,
+                status,
+                "Definition history is not verified; a governed revision cannot start from it",
+                codes=list(summary.get("codes") or ()),
             )
 
 

@@ -332,6 +332,7 @@ def registries() -> dict[str, Registry[Any]]:
         ("role", "writer", {"capabilities": {"required_tools": {"probe": "Probe"}}}),
         ("personality", "empty_eva", {}),
         ("tool", "probe", {}),
+        ("tool", "conversation", {}),
     ):
         r[kind].register(
             name=key, key=key, component=object, metadata={"ownership": "global", **meta}
@@ -584,7 +585,9 @@ async def test_validation_rejection_stops_before_composition_and_store() -> None
 async def test_definitive_composition_rejection_stops_before_store() -> None:
     s = stack()
     result = await s.provisioner.provision(
-        s.client, request(role_name="writer", tools=[{"key": "probe"}])
+        # chat/writer has no compatibility entry: it attaches the Conversation Tool.
+        s.client,
+        request(role_name="writer", tools=[{"key": "probe"}, {"key": "conversation"}]),
     )
     assert (result.status, result.stage, result.issue_codes) == (
         "rejected",
@@ -593,6 +596,18 @@ async def test_definitive_composition_rejection_stops_before_store() -> None:
     )
     assert s.persistence.calls == []
     assert state(s, result.operation_id) == OperationState.FAILED
+
+
+@pytest.mark.asyncio
+async def test_composition_requires_a_conversation_attachment_or_compatibility() -> None:
+    # CONVERSATION-0.1A: chat/writer is neither attached nor a reviewed compatibility entry.
+    s = stack()
+    result = await s.provisioner.provision(
+        s.client, request(role_name="writer", tools=[{"key": "probe"}])
+    )
+    assert result.status == "rejected" and result.stage == "composition"
+    assert "composition.type_unsupported" in result.issue_codes
+    assert s.persistence.calls == []
 
 
 @pytest.mark.asyncio
