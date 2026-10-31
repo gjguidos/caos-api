@@ -1,8 +1,9 @@
 # Governed Activity Context (AGENT-CTX-0.1)
 
-**Status:** implemented and accepted (2026-10-31), uncommitted (`feature/ops-v2` over
-`b70ab0b`); CONVERSATION-0.1A follow-up corrections (§3, §4, §9) await review. Supersedes
-ENKI-CTX-0.1. Decision basis:
+**Status:** implemented and accepted (2026-10-31); committed in `c1719b9` on
+`feature/ops-v2`, with the CONVERSATION-0.1A follow-up corrections (§3, §4, §9), REV-5
+consent (§8A) and MIG-FIX-0.1. Verified with disposable MongoDB only; no production route
+starts an Activity Context yet. Supersedes ENKI-CTX-0.1. Decision basis:
 [ADR-0004](architecture/decisions/ADR-0004-conversation-tool-and-activity-context.md).
 **Audience:** engineers building the conversation coordinator (ENKI-1.0-B), Ptah
 interactions (PTAH-0.1a) and future activity owners.

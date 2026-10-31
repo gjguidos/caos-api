@@ -1,7 +1,8 @@
 # Conversation Tool (CONVERSATION-0.1A)
 
-**Status:** implemented, uncommitted, awaiting architectural review (2026-10-31,
-`feature/ops-v2` over `b70ab0b`). Decision basis:
+**Status:** implemented and accepted (2026-10-31); committed in `c1719b9` on
+`feature/ops-v2`. No live Agent has an explicit attachment yet: Enki, Thoth and Nabu still
+converse through the §5 compatibility entries (not migrated). Decision basis:
 [ADR-0004](architecture/decisions/ADR-0004-conversation-tool-and-activity-context.md) §3 and
 §11. **Audience:** engineers working on Agent composition, ENKI-COMP-0.1, PTAH-0.1a and
 ENKI-1.0-B.

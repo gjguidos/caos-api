@@ -1,20 +1,21 @@
 # PTAH-0.0 — Interaction, Conversation-Context and Turn-Recovery Contracts
 
-**Status:** contract design for architectural review (2026-10-31, `feature/ops-v2` @ `b70ab0b`).
+**Status:** contract design for architectural review (2026-10-31, `feature/ops-v2` @ `b70ab0b`;
+the document and its implemented parts are committed in `c1719b9`).
 > **Correction (2026-10-31, [ADR-0004](architecture/decisions/ADR-0004-conversation-tool-and-activity-context.md), approved):**
 > - §4's Enki-specific context is replaced by the generic Governed Activity Context
 >   (AGENT-CTX-0.1, implemented);
 > - the optional `conversation@1.0.0` Tool is registered and drives conversation
->   composition (CONVERSATION-0.1A, implemented, awaiting review;
+>   composition (CONVERSATION-0.1A, implemented and accepted;
 >   [Conversation Tool](CONVERSATION_TOOL.md));
 > - the approved generic interaction identity is **`conversation.submit@1.0.0`**,
 >   replacing `enki.conversation.submit@1.0.0` throughout this document (§2.4). It is a
 >   design: no Interaction Registry, Ptah runtime or interaction frame exists.
 
-**Implemented (uncommitted):** §3 turn recovery (CONV-REC-0.1, accepted), §6
+**Implemented (committed in `c1719b9`):** §3 turn recovery (CONV-REC-0.1, accepted), §6
 draft-reference integrity (MANUSCRIPT-0.1C, accepted), and conversation-linked context
-storage as the generic [Activity Context](ACTIVITY_CONTEXT.md) (AGENT-CTX-0.1, awaiting
-review; it supersedes §4's ENKI-CTX-0.1). The interaction envelope (§2), the Enki turn coordinator
+storage as the generic [Activity Context](ACTIVITY_CONTEXT.md) (AGENT-CTX-0.1, accepted;
+it supersedes §4's ENKI-CTX-0.1, which was never committed). The interaction envelope (§2), the Enki turn coordinator
 and the Ptah runtime remain designs. It defines the prerequisites for ENKI-1.0-B.
 **Audience:** CAOS architects and the engineers who will implement the milestones in §8.
 **Decision basis:** the architect's approved decisions 1–10 (§0),
@@ -215,7 +216,7 @@ clients must tolerate absence. Deferred unless approved.
 - Finding (not changed here): existing `chat.response` replies disclose `llm.key`,
   `provider` and `model` to the client; the new projection omits them.
 
-## 3. Turn recovery (CONV-REC-0.1: implemented, uncommitted, awaiting review)
+## 3. Turn recovery (CONV-REC-0.1: implemented, accepted, committed in `c1719b9`)
 
 Implemented in `repositories/conversation_v2.py` and `services/client_event_dispatcher_v2.py`;
 verified with disposable Redis/Mongo (`tests/communication/test_turn_recovery_v2.py`).
@@ -307,7 +308,7 @@ its own:
 5. **No retries of consequential work by recovery.** Recovery settles transport state
    only.
 
-## 4. Enki conversation context (ENKI-CTX-0.1: storage implemented, awaiting review)
+## 4. Enki conversation context (ENKI-CTX-0.1: superseded by AGENT-CTX-0.1, never committed)
 
 ### 4.0 Superseded: ENKI-CTX-0.1 (`agents/enki_context/`)
 
@@ -468,7 +469,7 @@ unique `(tenant_id, conversation_id, owner_subject_id, source_agent_id)` where
 3. Until then, the coordinator **fails closed** (`enki.tools_unconfigured`) when Enki lacks
    explicit references. No implicit default, silent attachment or grant.
 
-## 6. Manuscript draft-reference integrity (decision 8; MANUSCRIPT-0.1C implemented, awaiting review)
+## 6. Manuscript draft-reference integrity (decision 8; MANUSCRIPT-0.1C implemented, accepted, committed in `c1719b9`)
 
 **As implemented** ([Manuscripts §9A](MANUSCRIPTS.md)), with these differences from the
 design below:
@@ -517,8 +518,8 @@ scope from Enki's root principal, so CPBX does not link those calls as children 
 
 | Milestone | Scope | Authority |
 | --- | --- | --- |
-| **CONV-REC-0.1** | Turn record v2: lease, fence, renew, reconcile, `interrupted`; dispatcher heartbeat (**implemented, awaiting review**; the deadline value moves to ENKI-1.0-B) | None |
-| **MANUSCRIPT-0.1C** | `DraftReferenceReader` + start/restart/complete validation (**implemented, awaiting review**) | None |
+| **CONV-REC-0.1** | Turn record v2: lease, fence, renew, reconcile, `interrupted`; dispatcher heartbeat (**implemented, accepted, committed in `c1719b9`**; the deadline value moves to ENKI-1.0-B) | None |
+| **MANUSCRIPT-0.1C** | `DraftReferenceReader` + start/restart/complete validation (**implemented, accepted, committed in `c1719b9`**) | None |
 | **ENKI-CTX-0.1** | Context model, Mongo repository, indexes, CAS + fence (**superseded by AGENT-CTX-0.1**, [Activity Context](ACTIVITY_CONTEXT.md)) | None |
 | **PTAH-0.1a** | Minimal frozen Interaction Registry, `interaction.submit` frame, the two interactions, typed results, optional transcript `refs` | None |
 | **ENKI-COMP-0.1** | Pinned Genesis entry references; governed revision path for live Enki | Revision path needs approval |

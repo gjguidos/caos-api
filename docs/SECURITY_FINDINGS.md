@@ -1,7 +1,8 @@
 # Security Findings Register
 
 Findings discovered during CAOS development, with their disclosure path, correction and
-evidence. Each entry is labelled **corrected (uncommitted)**, **open** or **accepted**.
+evidence. Each entry is labelled **corrected (uncommitted)**, **corrected (committed)**,
+**open** or **accepted**.
 Corrections are reviewed like any other milestone; this page grants nothing and is not
 runtime policy.
 
@@ -9,8 +10,8 @@ runtime policy.
 
 ## ACTCONSENT-1 — Legacy compatibility consented to every activity contract
 
-**Status:** corrected, uncommitted (2026-10-31, MIG-FIX-0.1); awaiting architectural
-review. Found during the MIG-PRE-0.1 readiness review.
+**Status:** corrected, committed in `c1719b9` (2026-10-31, MIG-FIX-0.1); accepted.
+Found during the MIG-PRE-0.1 readiness review.
 **Severity:** low (latent). No production route or handler starts an Activity Context,
 and consent never replaced authorization: the `conversation.v2` owner still required
 `chat.response` and UTU conversation access, and Manuscript sessions their own grants.
@@ -33,7 +34,7 @@ and consent never replaced authorization: the `conversation.v2` owner still requ
 
 ## REVGW-1 — Revision gateway changes were not bound into reviews
 
-**Status:** corrected, uncommitted (2026-10-31, REV-3); awaiting architectural review.
+**Status:** corrected, committed in `c1719b9` (2026-10-31, REV-3); accepted.
 Found during the REV-3 boundary review.
 **Severity:** low–moderate integrity gap.
 - **Gap:** `revision_gateways` bindings are policy configuration but not part of the UTU
@@ -56,8 +57,7 @@ Found during the REV-3 boundary review.
 
 ## AGENT-DEF-SEC-0.1 — Legacy routes could change governed V2 Agent definitions
 
-**Status:** corrected, uncommitted (2026-10-31, `feature/ops-v2` over `b70ab0b`); awaiting
-architectural review. Found during CONVERSATION-0.1A.
+**Status:** corrected, committed in `c1719b9` (2026-10-31, `feature/ops-v2`); accepted. Found during CONVERSATION-0.1A.
 **Severity:** moderate integrity bypass. The legacy routes let an Agent's creator (or a
 superadmin or group admin with write access) change or delete a governed V2 definition
 without validation, review, approval or Seshat evidence. No grant, signal or policy could

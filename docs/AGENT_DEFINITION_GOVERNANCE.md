@@ -1,7 +1,9 @@
 # Agent Definition Governance (AGENT-DEF-SEC-0.1)
 
-**Status:** implemented, uncommitted, awaiting architectural review (2026-10-31,
-`feature/ops-v2` over `b70ab0b`). Security finding: [AGENT-DEF-SEC-0.1](SECURITY_FINDINGS.md).
+**Status:** implemented and accepted (2026-10-31); committed in `c1719b9` on
+`feature/ops-v2`. Governed revision (§5–§9) is implemented in source and verified with
+disposable infrastructure only: the revision-application grant is not installed, and no
+live Agent has been revised. Security finding: [AGENT-DEF-SEC-0.1](SECURITY_FINDINGS.md).
 **Audience:** engineers changing Agent persistence, legacy routes, Genesis creation or the
 Conversation Tool, and the reviewers of ENKI-COMP-0.1.
 
@@ -84,7 +86,7 @@ their own V1 Workflow routes (§4).
 
 ## 5. Definition history and baseline verification (REV-1)
 
-Implemented, uncommitted, awaiting review
+Implemented, committed (`c1719b9`), accepted
 ([ADR-0005 §12–§13](architecture/decisions/ADR-0005-governed-agent-definition-revision.md)).
 
 - **History:** `caos.agent_definition_revision` v1 records are insert-only,
@@ -108,7 +110,7 @@ Implemented, uncommitted, awaiting review
 
 ## 6. Revision authoring and review (REV-2)
 
-Implemented, uncommitted, awaiting review
+Implemented, committed (`c1719b9`), accepted
 ([ADR-0005 §14](architecture/decisions/ADR-0005-governed-agent-definition-revision.md)).
 
 | Step | Implemented | Not implemented |
@@ -132,7 +134,7 @@ index; live Enki, Thoth and Nabu have no duplicates).
 
 ## 7. Human approval (REV-3)
 
-Implemented, uncommitted, awaiting review
+Implemented, committed (`c1719b9`), accepted
 ([ADR-0005 §15](architecture/decisions/ADR-0005-governed-agent-definition-revision.md)).
 
 - **Who:** the Agent's owner approves one exact, current review (`review_id` and
@@ -148,7 +150,8 @@ Implemented, uncommitted, awaiting review
 
 ## 8. Application (REV-4)
 
-Implemented in source and disposable tests, uncommitted, awaiting review
+Implemented in source and disposable tests, committed (`c1719b9`), conditionally accepted
+and corrected in REV-5; the grant is not installed
 ([ADR-0005 §16](architecture/decisions/ADR-0005-governed-agent-definition-revision.md)).
 
 - **Request:** the owner asks to apply an effective approval
@@ -166,7 +169,8 @@ Implemented in source and disposable tests, uncommitted, awaiting review
 
 ## 9. Runtime consistency (REV-5)
 
-Implemented in source and disposable tests, uncommitted, awaiting review
+Implemented in source and disposable tests, committed (`c1719b9`), accepted at the
+source/test level, subject to deployment verification
 ([ADR-0005 §17](architecture/decisions/ADR-0005-governed-agent-definition-revision.md)).
 
 - **Turn binding:** every V2 turn is bound at admission to the authoritative definition

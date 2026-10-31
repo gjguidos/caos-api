@@ -1,15 +1,18 @@
 # ADR-0004 — Conversation Tool and Governed Activity Context
 
 **Status:** **Approved** as the architectural direction, with the conditions in §10
-(2026-10-31). **Implemented (uncommitted, awaiting review):**
+(2026-10-31). **Implemented in source and committed in `c1719b9`** (verified with
+disposable MongoDB/Redis only):
 - AGENT-CTX-0.1, accepted ([Activity Context](../../ACTIVITY_CONTEXT.md));
 - CONVERSATION-0.1A: Tool registration and registry-driven composition, accepted
   ([Conversation Tool](../../CONVERSATION_TOOL.md), §11);
 - AGENT-DEF-SEC-0.1: governed-definition integrity and identity-bound compatibility
-  (§12, [Agent Definition Governance](../../AGENT_DEFINITION_GOVERNANCE.md)).
+  (§12, [Agent Definition Governance](../../AGENT_DEFINITION_GOVERNANCE.md)), accepted;
+- MIG-FIX-0.1: fail-closed activity consent (§14), accepted.
 
-Governed definition revision (ENKI-COMP-0.1), the Ptah runtime and the coordinator remain
-proposals.
+Governed definition revision is implemented in source (ADR-0005, REV-1 to REV-5). Its live
+use (the Enki/Thoth migration, ENKI-COMP-0.1) is not authorized or performed, and the
+Ptah runtime and the coordinator remain proposals.
 
 **Date:** 2026-10-31
 
@@ -18,8 +21,9 @@ proposals.
 2. Conversation exists only as implicit shared infrastructure, not as an optional,
    Agent-configurable Tool.
 
-**Evidence base:** source at `b70ab0b` on `feature/ops-v2` plus the uncommitted
-CONV-REC-0.1, MANUSCRIPT-0.1C, ENKI-CTX-0.1 and PTAH-0.0 work. The live Agent records were
+**Evidence base:** source at `b70ab0b` on `feature/ops-v2` plus the then-uncommitted
+CONV-REC-0.1, MANUSCRIPT-0.1C, ENKI-CTX-0.1 and PTAH-0.0 work (committed in `c1719b9`,
+except ENKI-CTX-0.1, which was replaced and never committed). The live Agent records were
 read once, read-only, during PTAH-0.0. Related: [ADR-0003](ADR-0003-enki-1-0-ptah-manuscript-shared-draft.md),
 [PTAH-0.0 contracts](../../PTAH_0_0_INTERACTION_CONTRACTS.md),
 [ENKI-1.0](../../ENKI_1_0_ARCHITECTURE.md),
@@ -63,7 +67,7 @@ must be creatable by Enki.
 hardcoded type/role function, not by attachment or configuration. Persisted V2 Agents
 attach no conversation Tool: live Enki, Thoth and Nabu all have `tools: []`.
 
-### 2.2 The ENKI-CTX-0.1 specialization (uncommitted)
+### 2.2 The ENKI-CTX-0.1 specialization (replaced; never committed)
 
 | Item | Enki-specific artifact |
 | --- | --- |
@@ -244,7 +248,7 @@ integration is built now; the model only leaves room for it (`owner.kind`,
 | Hardcoded `chat.response` turn grant | The owner kind's resolver requirement (a conversation-turn owner requires the Agent's existing conversational grant through its conversation profile) |
 
 **Migration:** none in a live database. The collection was never written outside disposable
-test databases, and the uncommitted ENKI-CTX-0.1 code is replaced before commit. The 15
+test databases, and the ENKI-CTX-0.1 code was replaced before commit (never committed). The 15
 tests are re-expressed against the generic service and the registered
 `agent.creation_interview@1.0.0` contract, with every invariant kept.
 

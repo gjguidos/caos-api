@@ -98,7 +98,7 @@ reload the process; `runtime.policy_drift` reveals a stale process.
 
 ## Conversation composition diagnostic (CONVERSATION-0.1A)
 
-Implemented, uncommitted. `inspect` / `reconcile` report how each V2 definition's
+Implemented, committed (`c1719b9`). `inspect` / `reconcile` report how each V2 definition's
 conversation is composed ([Conversation Tool](CONVERSATION_TOOL.md) §6):
 
 | Resource or finding | Meaning |
@@ -115,7 +115,7 @@ conversation is composed ([Conversation Tool](CONVERSATION_TOOL.md) §6):
 
 ## Definition history inspection (REV-1, REV-5)
 
-Implemented, uncommitted. `inspect` reports one `definition_baseline` resource per
+Implemented, committed (`c1719b9`). `inspect` reports one `definition_baseline` resource per
 governed definition (`agents/definition_revisions/inspection.py`):
 
 - **Never revised:** the REV-1 creation-baseline verifier.

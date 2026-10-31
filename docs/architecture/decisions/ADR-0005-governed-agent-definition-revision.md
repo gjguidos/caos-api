@@ -2,7 +2,8 @@
 
 **Status:** **Approved as the architectural direction, with the corrections in §12**
 (2026-10-31).
-- **Implemented (uncommitted):**
+- **Implemented in source and committed in `c1719b9`** (verified with disposable
+  MongoDB/Redis only; nothing enabled live):
   - REV-1, accepted (immutable revision records, digest chaining, read-only baseline
     verification; §13);
   - REV-2, accepted (revision drafts, scoped validation and digest-bound reviews; §14);
@@ -10,15 +11,18 @@
     evidence; §15);
   - REV-4, conditionally accepted (governed application; source and disposable tests
     only; §16, corrected in §17);
-  - REV-5, awaiting review (runtime definition consistency; §17).
+  - REV-5, accepted at the source/test level, subject to deployment verification
+    (runtime definition consistency; §17).
 - **Not approved:** declaring the revise grant in the checked-in policy, and every live
-  operation, including the Enki/Thoth migration.
+  operation, including the Enki/Thoth migration. The grant is not installed, Enki and
+  Thoth are not migrated, and the development API remains stopped.
 
 **Date:** 2026-10-31
 
 **Evidence base:**
-- source at `b70ab0b` on `feature/ops-v2`, plus the uncommitted CONV-REC-0.1,
-  MANUSCRIPT-0.1C, AGENT-CTX-0.1, CONVERSATION-0.1A and AGENT-DEF-SEC-0.1 work;
+- source at `b70ab0b` on `feature/ops-v2`, plus the then-uncommitted CONV-REC-0.1,
+  MANUSCRIPT-0.1C, AGENT-CTX-0.1, CONVERSATION-0.1A and AGENT-DEF-SEC-0.1 work (since
+  committed in `c1719b9`);
 - source inspection only: no database, runtime or policy was read or changed for this
   ADR;
 - live definitions are known only from earlier read-only observations (Handoff §3:
@@ -259,7 +263,7 @@ names.
 
 ## 5. Migration targets (proposed; not executed)
 
-Schemas are as registered at `b70ab0b` plus the uncommitted work:
+Schemas are as registered at `c1719b9`:
 - `ConversationToolConfig`: `modes`, `history`, `activities`;
 - `ManuscriptToolConfig`: `default_manuscript`;
 - `ReasoningToolConfig`: `tasks`, exact published keys.
@@ -420,7 +424,7 @@ where they differ.
 
 ## 13. REV-1 outcome (2026-10-31)
 
-Implemented, uncommitted, awaiting review (`src/domains/agentverse/agents/definition_revisions/`).
+Implemented and committed (`c1719b9`), accepted (`src/domains/agentverse/agents/definition_revisions/`).
 
 - **Canonical definition `caos.agent_definition@1`:** every `Agent` model field except
   the runtime-only `commbridge`, serialized in JSON mode, without storage metadata.
@@ -487,8 +491,8 @@ Implemented, uncommitted, awaiting review (`src/domains/agentverse/agents/defini
 
 ## 14. REV-2 outcome (2026-10-31)
 
-Implemented in source and disposable test infrastructure only; uncommitted, awaiting
-review. Nothing was authored, reviewed or installed live.
+Implemented in source and disposable test infrastructure only; committed in `c1719b9`,
+accepted. Nothing was authored, reviewed or installed live.
 
 **Revision drafts** (`agents/definition_revisions/drafts.py`, `caos.agent_definition_revision_draft` v1):
 - **Ownership:** a verified human owner, a stable tenant and Agent identity, and the exact
@@ -575,8 +579,8 @@ application (REV-4), runtime reconciliation (REV-5), and adoption of unverified 
 
 ## 15. REV-3 outcome (2026-10-31)
 
-Implemented in source and disposable test infrastructure only; uncommitted, awaiting
-review. No live approval, policy installation or Agent change. REV-3 never applies a
+Implemented in source and disposable test infrastructure only; committed in `c1719b9`,
+accepted. No live approval, policy installation or Agent change. REV-3 never applies a
 revision.
 
 **Stages, kept distinct:**
@@ -657,8 +661,8 @@ compare-and-set, and live execution approval.
 
 ## 16. REV-4 outcome (2026-10-31)
 
-Implemented in source and disposable test infrastructure only; uncommitted, awaiting
-review. The checked-in policy does **not** grant the new signal, so the installed UTU
+Implemented in source and disposable test infrastructure only; committed in `c1719b9`,
+conditionally accepted (corrected in §17). The checked-in policy does **not** grant the new signal, so the installed UTU
 policy revision (`88cdfa80…`) is unchanged and nothing was installed or run live.
 
 **Authority (the approved contract):**
@@ -748,8 +752,9 @@ grant in the checked-in policy.
 
 ## 17. REV-5 outcome (2026-10-31)
 
-Implemented in source and disposable test infrastructure only; uncommitted, awaiting
-review. No grant, policy, live data or lifecycle change.
+Implemented in source and disposable test infrastructure only; committed in `c1719b9`,
+accepted at the source/test level, subject to deployment verification. No grant, policy,
+live data or lifecycle change.
 
 ### 17.1 REV-4 invariants: findings and narrow corrections
 

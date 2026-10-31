@@ -248,7 +248,7 @@ unique development Redis test keys, without changing its live source mount.
 
 ## Definition binding and runtime instances (REV-5)
 
-Implemented, uncommitted
+Implemented, committed (`c1719b9`); verified with disposable infrastructure only
 ([ADR-0005 §17](architecture/decisions/ADR-0005-governed-agent-definition-revision.md)).
 
 - **Admission:** each turn binds the authoritative Agent definition at admission. The

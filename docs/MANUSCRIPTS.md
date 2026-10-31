@@ -357,7 +357,7 @@ approval, the reload-enabled development API was paused **before source edits** 
 left paused for review. Live deployment of the new descriptor was not verified; resuming
 the API would reload code and run normal bootstrap, so is a separate operator decision.
 
-## 9A. Draft-reference integrity (MANUSCRIPT-0.1C: implemented, uncommitted, awaiting review)
+## 9A. Draft-reference integrity (MANUSCRIPT-0.1C: implemented, accepted, committed in `c1719b9`)
 
 A supplied `draft_id` is resolved, read-only, through a narrow port
 (`ManuscriptService(drafts=…)`, `DraftReferences.reference`). Its production adapter is

@@ -10,8 +10,23 @@ This page is evidence-labelled guidance, not proof. A session must confirm it ag
 
 ## Current milestone
 
+**Integration state (2026-10-31, `feature/ops-v2` @ `c1719b9`, local, not pushed):**
+- **Committed source:** CONV-REC-0.1, MANUSCRIPT-0.1C, AGENT-CTX-0.1, CONVERSATION-0.1A,
+  AGENT-DEF-SEC-0.1, REV-1 to REV-5, MIG-FIX-0.1 and the PTAH-0.0, ADR-0004 and ADR-0005
+  documents are committed in `c1719b9`. Conversation, Activity Context and governed
+  revision (REV-1 to REV-5) are implemented in source.
+- **Tested:** disposable MongoDB/Redis only; full backend 3233 passed, 11 skipped, 5
+  inherited root-signing failures.
+- **Not deployed or enabled:** the `store.revise.approved@1.0.0` grant is neither in the
+  checked-in policy nor installed (installed policy `88cdfa80…`); Enki and Thoth have not
+  been migrated (they converse through the legacy compatibility entries); the
+  development API (`caos-api`) remains stopped with restart policy `no`.
+- **Open:** DEF-6 (duplicate Agent identity remediation; revision fails closed),
+  CosmosDB verification (OPS V2 `$$NOW` pipelines, Store partial index), and the Genesis
+  integration test-isolation finding (below; the one sequential failure is unexplained).
+
 **MIG-FIX-0.1 — Conversation compatibility hardening** (implemented in source and
-disposable tests only, uncommitted; awaiting architectural review). See
+disposable tests only, committed in `c1719b9`; accepted). See
 [ADR-0004 §14](decisions/ADR-0004-conversation-tool-and-activity-context.md) and
 [Security Findings](../SECURITY_FINDINGS.md) ACTCONSENT-1.
 - **Explicit legacy activities:** Enki's compatibility entry declares only
@@ -23,14 +38,16 @@ disposable tests only, uncommitted; awaiting architectural review). See
 - **Tests:** 14 new (`activities/tests/test_activity_consent.py`). Full backend 3233
   passed, 11 skipped, 5 inherited root-signing failures.
 - **Genesis intermittent test** (`test_concurrent_requests_and_crash_after_store_converge_on_one_agent`):
-  unchanged code path; not reproduced sequentially. Overlapping runs reproduce a 403
-  because the Genesis integration fixture shares one tenant-wide UTU revocation key and
-  deletes it at teardown (test isolation, not product behavior; see Handoff).
+  unchanged code path; it failed once in ten sequential full runs, without a captured
+  traceback, and that failure is unexplained. Overlapping runs reproduce a 403 because
+  the Genesis integration fixture shares one tenant-wide UTU revocation key and deletes
+  it at teardown (a test-isolation weakness; see Handoff). Unresolved.
 - **Migration readiness (MIG-PRE-0.1, read-only):** policy activation and the Enki/Thoth
   migration are not prepared or authorized.
 
 **REV-5 — Runtime definition consistency and reconciliation** (implemented in source and
-disposable tests only, uncommitted; awaiting architectural review). See
+disposable tests only, committed in `c1719b9`; accepted at the source/test level, subject to deployment
+verification). See
 [ADR-0005 §17](decisions/ADR-0005-governed-agent-definition-revision.md).
 - **REV-4 corrections:** consumption must precede expiry and binds the exact
   application; expiry releases the claim; the predecessor is checked before selection
@@ -47,7 +64,7 @@ disposable tests only, uncommitted; awaiting architectural review). See
   failures.
 
 **REV-4 — Governed Agent definition application** (implemented in source and disposable
-tests only, uncommitted; conditionally accepted 2026-10-31, corrected in REV-5). See
+tests only, committed in `c1719b9`; conditionally accepted 2026-10-31, corrected in REV-5). See
 [ADR-0005 §16](decisions/ADR-0005-governed-agent-definition-revision.md).
 - **Signal and scope:** `store.revise.approved@1.0.0` (`system.store`) under
   `agent.definition.revise`, held by Genesis only. Not declared in the checked-in policy
@@ -61,7 +78,7 @@ tests only, uncommitted; conditionally accepted 2026-10-31, corrected in REV-5).
   failures.
 
 **REV-3 — Governed human approval of Agent revisions** (implemented in source and
-disposable tests only, uncommitted; accepted 2026-10-31). See
+disposable tests only, committed in `c1719b9`; accepted 2026-10-31). See
 [ADR-0005 §15](decisions/ADR-0005-governed-agent-definition-revision.md).
 - **Approvals:** immutable, digest-bound, one per human per review; approve, status and
   withdraw routes; 24 h expiry.
@@ -76,7 +93,7 @@ disposable tests only, uncommitted; accepted 2026-10-31). See
   root-signing failures.
 
 **REV-2 — Governed Agent revision candidates and review** (implemented in source and
-disposable tests only, uncommitted; accepted 2026-10-31). See
+disposable tests only, committed in `c1719b9`; accepted 2026-10-31). See
 [ADR-0005 §14](decisions/ADR-0005-governed-agent-definition-revision.md) and
 [Agent Definition Governance §6](../AGENT_DEFINITION_GOVERNANCE.md).
 - **Drafts:** owner-authored complete candidates in immutable draft revisions with CAS
@@ -99,7 +116,7 @@ disposable tests only, uncommitted; accepted 2026-10-31). See
   The API remains stopped.
 
 **REV-1 — Immutable Agent definition history and baseline verification** (implemented,
-uncommitted; accepted 2026-10-31, with its operational checkpoint). See [ADR-0005 §12–§13](decisions/ADR-0005-governed-agent-definition-revision.md)
+committed in `c1719b9`; accepted 2026-10-31, with its operational checkpoint). See [ADR-0005 §12–§13](decisions/ADR-0005-governed-agent-definition-revision.md)
 and [Agent Definition Governance §5](../AGENT_DEFINITION_GOVERNANCE.md).
 - **Records:** strict, Agent-neutral `caos.agent_definition_revision` v1 records with a
   pinned canonical definition schema (`caos.agent_definition@1`), chained digests,
@@ -144,7 +161,7 @@ as direction with corrections; REV-1 implemented; REV-2 onward not approved). Se
   contract change and the live migration.
 - **Separate remediations:** WF-GOV-0.1, V1-INGEST-SEC-0.1.
 
-**AGENT-DEF-SEC-0.1 — Governed Agent definition integrity** (implemented, uncommitted;
+**AGENT-DEF-SEC-0.1 — Governed Agent definition integrity** (implemented, committed in `c1719b9`;
 accepted 2026-10-31). See [Agent Definition Governance](../AGENT_DEFINITION_GOVERNANCE.md),
 [Security Findings](../SECURITY_FINDINGS.md) and [ADR-0004 §12](decisions/ADR-0004-conversation-tool-and-activity-context.md).
 - **Closed:** V1 `PATCH` (type, role, Soul, Tools and their configuration, prompt,
@@ -163,7 +180,7 @@ accepted 2026-10-31). See [Agent Definition Governance](../AGENT_DEFINITION_GOVE
 - **Next:** ENKI-COMP-0.1 (governed revision), the only way to change a governed
   definition.
 
-**CONVERSATION-0.1A — First-class Conversation Tool** (implemented, uncommitted; accepted
+**CONVERSATION-0.1A — First-class Conversation Tool** (implemented, committed in `c1719b9`; accepted
 2026-10-31; compatibility superseded by AGENT-DEF-SEC-0.1's identity allowlist). See [Conversation Tool](../CONVERSATION_TOOL.md) and
 [ADR-0004 §11](decisions/ADR-0004-conversation-tool-and-activity-context.md).
 - **Tool:** optional `conversation@1.0.0`, declaring the existing `chat.context` and
@@ -189,7 +206,7 @@ accepted 2026-10-31). See [Agent Definition Governance](../AGENT_DEFINITION_GOVE
 - **Next:** ENKI-COMP-0.1 (governed definition revision: the only new-authority gate),
   then PTAH-0.1a.
 
-**AGENT-CTX-0.1 — Governed Activity Context** (implemented, uncommitted; accepted
+**AGENT-CTX-0.1 — Governed Activity Context** (implemented, committed in `c1719b9`; accepted
 2026-10-31 subject to follow-up invariants, delivered in CONVERSATION-0.1A). See [Activity Context](../ACTIVITY_CONTEXT.md) and
 [ADR-0004 §10](decisions/ADR-0004-conversation-tool-and-activity-context.md).
 - **Package:** a generic `activities/` package with exact frozen activity-contract and
@@ -228,10 +245,10 @@ above). See
 - **Proposed sequence:** CONVERSATION-0.1 → AGENT-CTX-0.1 → CONVERSATION-0.1A →
   ENKI-COMP-0.1 (the only new-authority gate: governed definition revision) → PTAH-0.1a →
   ENKI-1.0-B.
-- ENKI-CTX-0.1 code stays uncommitted pending this review.
+- ENKI-CTX-0.1 code was replaced by AGENT-CTX-0.1 and never committed.
 
-**ENKI-CTX-0.1 — Durable Enki conversation context** (implemented, uncommitted; awaiting
-architectural review). See [PTAH-0.0 §4.0](../PTAH_0_0_INTERACTION_CONTRACTS.md).
+**ENKI-CTX-0.1 — Durable Enki conversation context** (historical: implemented, then
+superseded by AGENT-CTX-0.1 and removed; never committed). See [PTAH-0.0 §4.0](../PTAH_0_0_INTERACTION_CONTRACTS.md).
 - **Storage:** `agents/enki_context/` (`caos.enki.conversation_context` v1 in Mongo,
   `coll_enki_conversation_contexts`), with one document per interview generation and at
   most one active generation by construction.
@@ -250,10 +267,9 @@ architectural review). See [PTAH-0.0 §4.0](../PTAH_0_0_INTERACTION_CONTRACTS.md
   failures; one one-off timing flake was observed in an unrelated Genesis crash test
   (`OPS V2 LeaseExpired`), which then passed 5/5 alone and in a full rerun.
 
-Next after review: PTAH-0.1a. MANUSCRIPT-0.1C is accepted (uncommitted).
+Next after review: PTAH-0.1a. MANUSCRIPT-0.1C is accepted (committed in `c1719b9`).
 
-**MANUSCRIPT-0.1C — Draft-reference integrity** (implemented, uncommitted; awaiting
-architectural review). See [Manuscripts §9A](../MANUSCRIPTS.md).
+**MANUSCRIPT-0.1C — Draft-reference integrity** (implemented, committed in `c1719b9`; accepted). See [Manuscripts §9A](../MANUSCRIPTS.md).
 - **Port:** a read-only `DraftReferenceReader` (draft ownership rule plus repository read;
   returns `{draft_id, revision, status}`).
 - **Checks:** a new start with a `draft_id` requires the actor's own `editing` draft.
@@ -267,10 +283,9 @@ architectural review). See [Manuscripts §9A](../MANUSCRIPTS.md).
   through Enki's scoped `manuscript.session.start`). Full backend 2930 passed, 11 skipped,
   5 inherited failures.
 
-Next after review: ENKI-CTX-0.1. CONV-REC-0.1 is accepted (uncommitted).
+Next after review: ENKI-CTX-0.1 (later superseded by AGENT-CTX-0.1). CONV-REC-0.1 is accepted (committed in `c1719b9`).
 
-**CONV-REC-0.1 — Durable conversation turn recovery** (implemented, uncommitted; awaiting
-architectural review). Verified HEAD: `b70ab0b` on `feature/ops-v2`. See
+**CONV-REC-0.1 — Durable conversation turn recovery** (implemented, committed in `c1719b9`; accepted). Verified HEAD: `b70ab0b` on `feature/ops-v2`. See
 [PTAH-0.0 §3](../PTAH_0_0_INTERACTION_CONTRACTS.md) and
 [Genesis Communication V2](../GENESIS_COMMUNICATION_V2.md).
 - **Lease:** the V2 turn is an owned lease (`caos.communication.turn` v2) with a 15 s Redis
@@ -288,7 +303,7 @@ architectural review). Verified HEAD: `b70ab0b` on `feature/ops-v2`. See
 failures. Next after review: MANUSCRIPT-0.1C.
 
 **PTAH-0.0 — ENKI-1.0-B prerequisite contracts** (design only, awaiting architectural
-review). See [PTAH-0.0 Interaction Contracts](../PTAH_0_0_INTERACTION_CONTRACTS.md).
+review; the document is committed in `c1719b9`). See [PTAH-0.0 Interaction Contracts](../PTAH_0_0_INTERACTION_CONTRACTS.md).
 Proposed, **not implemented**: `caos.ptah.interaction` v1 on the existing V2 socket with a
 server-private Interaction Registry; `enki.conversation.submit@1.0.0` and
 `draft.proposal.decide@1.0.0`; typed `interaction.result` projections; turn-recovery
@@ -483,14 +498,14 @@ Target chain: `JOSHUA → Genesis → data.validation → store.create → Khepr
 | Contracts: Genesis grants | Contracts and status say Genesis holds only `data.validation` + `store.create.provisioned` | G3.4 local policy adds the scope-only `store.create.approved` | Open — update after G3.4 review |
 | AGENTS.md NCSC section | CPBX described as design target | Local CPBX, UTU permits and trusted lines are implemented; listed signals (`personality.infuse`, `prompt.build`, …) remain unregistered | Wording kept; contracts doc states current status |
 
-| Snapshot commit state | Snapshot header and milestone entries say G3.x, DEV-0.x, DRAFT-0.x and MANUSCRIPT-0.1/0.1A/0.1B are uncommitted over `828321f` | `git log`: committed as `e076639` (checkpoint) and `b7c40fb` (Ptah docs); tree was clean before CATALOG-0.1 | Open — refresh the snapshot header and per-milestone "uncommitted" labels in a reviewed docs pass |
+| Snapshot commit state | Snapshot header and milestone entries say G3.x, DEV-0.x, DRAFT-0.x, MANUSCRIPT-0.1/0.1A/0.1B, CATALOG-0.1/0.1A, VALIDATION-SEC-0.1 and REASONING-0.1A/0.1B/0.1C are uncommitted over `828321f` | `git log`: committed as `e076639` (checkpoint), `b7c40fb` (Ptah docs) and `b70ab0b` (catalog/reasoning); CONV-REC-0.1 through MIG-FIX-0.1 in `c1719b9` (labels reconciled by DOC-SYNC-0.1) | Open for the pre-`c1719b9` milestone labels and the snapshot header — refresh in a reviewed docs pass |
 | Validation finding text | `ValidationIssue` docstring: messages never echo submitted values | `composition.required_tool_missing` named unreadable internal Tools | Resolved (uncommitted) by VALIDATION-SEC-0.1 |
-| Conversation turn recovery | `repositories/conversation_v2.py` docstring: "a crashed in-progress turn stays fenced for trusted recovery" | No recovery code existed; `:turn` had no TTL, lease or fence, so a crashed turn made the conversation answer `busy` permanently | **Resolved (uncommitted, awaiting review)** by CONV-REC-0.1: leased, fenced turns with lazy `interrupted` recovery |
-| Manuscript `draft_id` | Manuscripts: a session may reference the human's draft | `ManuscriptService.start` recorded `draft_id` without checking existence, ownership or state | **Resolved (uncommitted, awaiting review)** by MANUSCRIPT-0.1C ([Manuscripts §9A](../MANUSCRIPTS.md)) |
+| Conversation turn recovery | `repositories/conversation_v2.py` docstring: "a crashed in-progress turn stays fenced for trusted recovery" | No recovery code existed; `:turn` had no TTL, lease or fence, so a crashed turn made the conversation answer `busy` permanently | **Resolved (committed in `c1719b9`)** by CONV-REC-0.1: leased, fenced turns with lazy `interrupted` recovery |
+| Manuscript `draft_id` | Manuscripts: a session may reference the human's draft | `ManuscriptService.start` recorded `draft_id` without checking existence, ownership or state | **Resolved (committed in `c1719b9`)** by MANUSCRIPT-0.1C ([Manuscripts §9A](../MANUSCRIPTS.md)) |
 | `chat.response` reply disclosure | V2 replies are client-safe | Replies include `llm.key`, `provider` and `model` | Open — decide in PTAH-0.0 review (§9 item 5) |
-| ENKI-CTX-0.1 specialization | AOSA: ordinary Agents use shared, registry-driven infrastructure | `agents/enki_context/`, `coll_enki_conversation_contexts`, `app.state.enki_contexts`, `enki.context.*` events were Enki-specific | **Resolved (uncommitted, awaiting review)** by AGENT-CTX-0.1 ([Activity Context](../ACTIVITY_CONTEXT.md)) |
-| Conversation gate | Tools and configuration decide Agent behavior | `supports_v2_conversation` hardcoded `type == "chat"` or `(form, enki)` in four call sites | **Resolved (CONVERSATION-0.1A, uncommitted):** registry-driven resolver. Existing Enki, Thoth and Nabu converse through a temporary, reported, identity-bound allowlist (AGENT-DEF-SEC-0.1) until ENKI-COMP-0.1 attaches the Tool ([Conversation Tool](../CONVERSATION_TOOL.md) §5) |
-| V1 PATCH on V2 definitions | Governed definition revision changes V2 Agents | The legacy V1 Agent `PATCH` / `DELETE` and collection-link routes could change or delete V2 definitions | **Resolved (AGENT-DEF-SEC-0.1, uncommitted):** refused with `409 AGENT_DEFINITION_GOVERNED`; governed revision (ENKI-COMP-0.1) is not implemented, so V2 definitions are immutable for now |
+| ENKI-CTX-0.1 specialization | AOSA: ordinary Agents use shared, registry-driven infrastructure | `agents/enki_context/`, `coll_enki_conversation_contexts`, `app.state.enki_contexts`, `enki.context.*` events were Enki-specific | **Resolved (committed in `c1719b9`)** by AGENT-CTX-0.1 ([Activity Context](../ACTIVITY_CONTEXT.md)) |
+| Conversation gate | Tools and configuration decide Agent behavior | `supports_v2_conversation` hardcoded `type == "chat"` or `(form, enki)` in four call sites | **Resolved (CONVERSATION-0.1A, committed in `c1719b9`):** registry-driven resolver. Existing Enki, Thoth and Nabu converse through a temporary, reported, identity-bound allowlist (AGENT-DEF-SEC-0.1) until ENKI-COMP-0.1 attaches the Tool ([Conversation Tool](../CONVERSATION_TOOL.md) §5) |
+| V1 PATCH on V2 definitions | Governed definition revision changes V2 Agents | The legacy V1 Agent `PATCH` / `DELETE` and collection-link routes could change or delete V2 definitions | **Resolved (AGENT-DEF-SEC-0.1, committed in `c1719b9`):** refused with `409 AGENT_DEFINITION_GOVERNED`; governed revision (REV-1 to REV-5) is implemented in source but not enabled live (grant not installed), so live V2 definitions remain unchanged |
 | Context concurrency and evidence | One active generation; consequential evidence recorded | Single-active held only by service protocol, and a concurrent `start` could orphan a `switch`; evidence was missing after a crash until the operation was repeated | **Resolved (uncommitted, awaiting review)**: per-scope head with activation intent, plus an evidence outbox ([Activity Context §4–§5](../ACTIVITY_CONTEXT.md)) |
 | Enki Tool references | REASONING-0.1C: the coordinator uses Enki's persisted `AgentToolRef.config` | Live Enki has `tools: []`; no governed revision path for an existing Agent (Store is insert-only; V1 PATCH bypasses G3.3/Seshat) | Open — ENKI-COMP-0.1 ([PTAH-0.0 §5](../PTAH_0_0_INTERACTION_CONTRACTS.md)) |
 | Live API pause (2026-10-31) | Handoff: the development API stays paused | Restarted outside this task at 2026-10-30 23:15 UTC; auto-reloaded the uncommitted REASONING-0.1B code 9 times (startup completed each time, so the checked-in revision `88cdfa80…` was installed live and the model check passed); paused again with operator approval | Inspected read-only 2026-10-31 (REASONING-0.1C): installed = source `88cdfa80…`, no live writes after the restart, Enki/Thoth sleeping (in-memory runtimes ended), Nabu present. API remains paused; open only until the operator resumes it |

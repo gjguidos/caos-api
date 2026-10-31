@@ -84,7 +84,8 @@ automatic grants or activation.
 3. **Ptah contract-design gate.** Whether the pre-ENKI-1.0-B contract design is a
    separate documentation milestone (e.g. PTAH-0.0) or part of ENKI-1.0-B's entry criteria.
    *2026-10-31:* drafted as PTAH-0.0 ([PTAH-0.0 Interaction Contracts](PTAH_0_0_INTERACTION_CONTRACTS.md)); awaiting review. ENKI-1.0-B
-   follows CONV-REC-0.1, MANUSCRIPT-0.1C, ENKI-CTX-0.1, PTAH-0.1a and ENKI-COMP-0.1.
+   follows CONV-REC-0.1, MANUSCRIPT-0.1C, ENKI-CTX-0.1 (superseded by AGENT-CTX-0.1),
+   PTAH-0.1a and ENKI-COMP-0.1; the first two and AGENT-CTX-0.1 are committed in `c1719b9`.
 4. **Draft revision auditing.** Which draft revisions are "consequential" for Seshat
    (e.g. accepted proposals and review/approval-bound revisions vs. every form save).
 5. **Draft lifecycle after creation.** Whether a consumed draft may continue to be edited
@@ -429,20 +430,21 @@ DraftProposal {
 
 > 2026-10-31: the client turn is `conversation.submit@1.0.0` (generalized from `enki.conversation.submit@1.0.0`, ADR-0004) and the human decision
 > `draft.proposal.decide@1.0.0` ([PTAH-0.0 Interaction Contracts](PTAH_0_0_INTERACTION_CONTRACTS.md) §2); the turn runs under one 60 s deadline.
-> CONV-REC-0.1 (implemented, awaiting review) makes each turn an owned, fenced, renewable
+> CONV-REC-0.1 (implemented, accepted, committed in `c1719b9`) makes each turn an owned, fenced, renewable
 > lease with lazy `interrupted` recovery (PTAH-0.0 §3). Consequential steps in the
 > coordinator must follow the cross-service contract in PTAH-0.0 §3.6: deterministic
 > idempotency keys, owner-service CAS, and re-reading state instead of repeating work.
-> MANUSCRIPT-0.1C (implemented, awaiting review): a session binds only the human's own
+> MANUSCRIPT-0.1C (implemented, accepted, committed in `c1719b9`): a session binds only the human's own
 > `editing` draft. `restart` and `complete` re-check it. The coordinator reads the current
 > draft revision for `base_revision` and re-checks before proposing ([Manuscripts §9A](MANUSCRIPTS.md)).
 > **Correction (approved, [ADR-0004](architecture/decisions/ADR-0004-conversation-tool-and-activity-context.md)):**
 > Enki is an ordinary Agent. Its creation interview is a registered activity contract
 > (`agent.creation_interview@1.0.0`) on a generic Activity Context Service, and conversation
 > is an optional `conversation@1.0.0` Tool.
-> CONVERSATION-0.1A (implemented, awaiting review; [Conversation Tool](CONVERSATION_TOOL.md)):
-> - Enki converses through the temporary `legacy.v2.form.enki` compatibility entry: both
->   modes, no declared activities, its existing grants unchanged.
+> CONVERSATION-0.1A (implemented, accepted, committed in `c1719b9`; [Conversation Tool](CONVERSATION_TOOL.md)):
+> - Enki converses through the temporary `legacy.v2.enki` compatibility entry: both
+>   modes, its existing grants unchanged; since MIG-FIX-0.1 it declares exactly
+>   `agent.creation_interview@1.0.0` (activity consent only, no new authority).
 >   Since AGENT-DEF-SEC-0.1 the entry is bound to Enki's pinned identity.
 > - ENKI-COMP-0.1 replaces that entry with an explicit `conversation@1.0.0` attachment
 >   declaring `agent.creation_interview@1.0.0`, through governed definition revision.
