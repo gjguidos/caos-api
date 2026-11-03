@@ -296,6 +296,30 @@ class ConversationGate:
             raise DefinitionChanged(agent_id)
         self.resolve(definition).require(mode)
 
+    async def admit_activity(
+        self, tenant_id: str, agent_id: str, activity: str
+    ) -> tuple[Mapping[str, Any], DefinitionBinding]:
+        """COORD-0.1 admission: the Agent's current composition declares exactly
+        ``activity`` (and it resolves for a ``conversation.v2`` owner). The definition and
+        its binding come from ONE read, so the turn's Tool configuration is that
+        definition's. Availability only: UTU grants are checked separately."""
+        definition = await self._definition(tenant_id, agent_id)
+        composition = self.resolve(definition)
+        if composition.config is None:
+            raise ConversationUnavailable(composition.reason or "unavailable")
+        if activity not in composition.config.activities or not self._activity(activity):
+            raise ConversationUnavailable("activity_not_declared")
+        return definition, bind_definition(tenant_id, agent_id, definition)
+
+    async def ensure_activity_current(
+        self, tenant_id: str, agent_id: str, binding: DefinitionBinding, activity: str
+    ) -> None:
+        """Before a consequential activity step: still the admitted definition, still
+        declaring ``activity``."""
+        _, current = await self.admit_activity(tenant_id, agent_id, activity)
+        if current != binding:
+            raise DefinitionChanged(agent_id)
+
     async def declared_activities(self, tenant_id: str, agent_id: str) -> frozenset[str]:
         """Activity contracts the Agent's current composition declares (REV-5, MIG-FIX-0.1).
 
