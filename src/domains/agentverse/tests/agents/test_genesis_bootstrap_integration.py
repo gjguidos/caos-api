@@ -72,6 +72,12 @@ from src.domains.agentverse.security.revocation import ExecutionPermit
 from src.domains.agentverse.tests.agents.test_genesis_initiation_integration import (
     opt_in_first_install,
 )
+from src.domains.agentverse.tests.utu_isolation import (
+    disposable_utu_redis_url,
+    isolate_utu,
+    new_run_id,
+    verify_disposable_redis,
+)
 
 UNRELATED = {"id": "unrelated-agent", "name": "Unrelated", "type": "chat", "creator": "x"}
 
@@ -84,9 +90,9 @@ class NoInference:
 @pytest_asyncio.fixture
 async def world(monkeypatch):
     """Shared persistence; ``start()`` composes one more API process over it."""
-    url = os.environ.get("UTU_TEST_REDIS_URL")
-    if os.environ.get("OPS2_MONGO_INTEGRATION") != "1" or not url:
+    if os.environ.get("OPS2_MONGO_INTEGRATION") != "1":
         pytest.skip("Requires real Mongo and disposable UTU_TEST_REDIS_URL")
+    url = disposable_utu_redis_url()  # TEST-SAFETY-0.1: verified before any connection
     for key, value in {
         "GENESIS_SESSIONS_ENABLED": "true",
         "GENESIS_LOCAL_ENABLED": "true",
@@ -107,6 +113,9 @@ async def world(monkeypatch):
         settings.database.resolved_uri, require_test_database(disposable_database_name("g1boot"))
     )
     redis = Redis.from_url(url)
+    await verify_disposable_redis(redis)
+    # Every simulated API process of this run shares one isolated UTU tenant key.
+    run_id = new_run_id()
     session_keys = ["g1b:{" + uuid4().hex + "}" + suffix for suffix in (":records", ":due")]
     apps = []
 
@@ -121,6 +130,7 @@ async def world(monkeypatch):
         sessions = security["genesis_security"].sessions
         sessions._keys = list(session_keys)
         container = initialize_domains(container, **security)
+        isolate_utu(container, container.redis.redis_repository(), run_id)
         container.agentverse.synaptic_exchange.add_kwargs(registry=registry)
         app = FastAPI()
         app.container = container

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import re
+import socket
 import subprocess
 import sys
 from typing import Any
@@ -84,14 +85,33 @@ def _endpoint(url: str) -> tuple[str | None, int, str]:
     return parts.hostname, parts.port or 6379, parts.path.lstrip("/") or "0"
 
 
+def _addresses(host: str | None, port: int) -> set[tuple[str, int]]:
+    """Resolved addresses (DNS only; never connects), so equivalent spellings of the
+    same server (``localhost`` / ``127.0.0.1``, a service name / its address) match."""
+    if not host:
+        return set()
+    try:
+        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except OSError:
+        return set()
+    return {(str(info[4][0]), port) for info in infos}
+
+
 def require_disposable_redis(url: str | None, live_url: str | None) -> str:
     if not url:
         raise UnsafeVerificationTarget("Provide a disposable Redis URL (--redis-url)")
     if urlsplit(url).scheme not in ("redis", "rediss"):
         raise UnsafeVerificationTarget("Disposable target must be a redis:// URL")
-    if live_url and _endpoint(url)[:2] == _endpoint(live_url)[:2]:
-        # Same server as the live authority: refuse every database on it.
-        raise UnsafeVerificationTarget("Refusing the live Redis server for verification")
+    host, port, _ = _endpoint(url)
+    if not host:
+        raise UnsafeVerificationTarget("Disposable target must name a Redis host")
+    if live_url:
+        live_host, live_port, _ = _endpoint(live_url)
+        if (host, port) == (live_host, live_port) or (
+            _addresses(host, port) & _addresses(live_host, live_port)
+        ):
+            # Same server as the live authority: refuse every database on it.
+            raise UnsafeVerificationTarget("Refusing the live Redis server for verification")
     return url
 
 

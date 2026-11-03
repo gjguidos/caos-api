@@ -18,6 +18,7 @@ from src.domains.agentverse.nataraja.manifest import load_manifest
 from src.domains.agentverse.nataraja.observe import AsyncReadOnlyRedis, MotorReadOnlyMongo, observe
 from src.domains.agentverse.nataraja.plan import evaluate
 from src.domains.agentverse.runtime.instances_v2 import AgentInstanceKey
+from src.domains.agentverse.security.revocation import RedisRevocationStore
 from src.domains.agentverse.tests.agents import test_genesis_initiation_integration as genesis_tests
 from src.domains.agentverse.tests.agents.test_recursive_genesis_integration import (
     AGENTS,
@@ -36,7 +37,16 @@ async def fingerprint(s, redis) -> str:
         rows = await s.mongo.db[name].find({}).to_list(length=None)
         collections[name] = sorted(json.dumps(row, sort_keys=True, default=str) for row in rows)
     keys = {}
-    async for key in redis.scan_iter(count=500):
+    # TEST-SAFETY-0.1: only this run's Redis state (its isolated UTU tenant key and its
+    # session keys), so concurrent runs sharing the disposable Redis cannot change it.
+    # Nataraja's read-only adapters are verified separately (test_nataraja.py).
+    owned = (
+        s.av.utu_authority()._store().prefix,
+        s.sessions._keys[0].rsplit(":", 1)[0],
+    )
+    run_keys = [key for prefix in owned async for key in redis.scan_iter(match=prefix + "*")]
+    assert run_keys, "the fingerprint must cover this run's authority state"
+    for key in sorted(run_keys):
         kind = (await redis.type(key)).decode()
         if kind == "hash":
             value = {k.decode(): v.decode() for k, v in (await redis.hgetall(key)).items()}
@@ -54,6 +64,20 @@ async def runtime_of(app, client=("127.0.0.1", 50000)):
         return await http.get("/internal/dev/nataraja/runtime")
 
 
+class RunScopedRedis(AsyncReadOnlyRedis):
+    """TEST-SAFETY-0.1: this run's UTU tenant hash lives under an isolated key, so the
+    read-only view maps the production-format key to it (Nataraja is unchanged)."""
+
+    def __init__(self, client, store) -> None:
+        super().__init__(client)
+        self._store = store
+
+    async def hget(self, key: str, field: str) -> str | None:
+        if key == RedisRevocationStore._key("caos-local"):
+            key = self._store._key("caos-local")
+        return await super().hget(key, field)
+
+
 async def inspected(s, redis):
     async def runtime():
         return (await runtime_of(s.app)).json()
@@ -62,7 +86,7 @@ async def inspected(s, redis):
         runtime=runtime,
         tenant_id="caos-local",
         mongo=MotorReadOnlyMongo(s.mongo.db),
-        redis=AsyncReadOnlyRedis(redis),
+        redis=RunScopedRedis(redis, s.av.utu_authority()._store()),
         container=s.app.container,
         targets={},
     )

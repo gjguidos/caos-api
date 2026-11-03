@@ -30,6 +30,10 @@ from src.domains.agentverse.security.policy_pin import (
 )
 from src.domains.agentverse.security.revocation import RedisRevocationStore, policy_version
 from src.domains.agentverse.tests.agents import test_genesis_initiation_integration as genesis
+from src.domains.agentverse.tests.utu_isolation import (
+    disposable_utu_redis_url,
+    verify_disposable_redis,
+)
 
 local_app = genesis.local_app
 TENANT = "tenant"
@@ -110,10 +114,9 @@ def test_the_checked_in_pin_approves_the_checked_in_policy(monkeypatch):
 
 @pytest_asyncio.fixture
 async def redis_env():
-    url = os.environ.get("UTU_TEST_REDIS_URL")
-    if not url:
-        pytest.skip("Set UTU_TEST_REDIS_URL for Redis 6 integration tests")
+    url = disposable_utu_redis_url()  # TEST-SAFETY-0.1: verified before any connection
     redis = Redis.from_url(url)
+    await verify_disposable_redis(redis)
     prefix = "test:pin:" + uuid4().hex + ":"
 
     class IsolatedStore(RedisRevocationStore):
@@ -323,9 +326,10 @@ async def test_every_startup_or_reload_re_reads_and_enforces_the_pin(
 ):
     s = local_app  # started with config/genesis.local.json and its checked-in pin
     utu = s.av.utu_authority()
-    key = RedisRevocationStore._key("caos-local")
+    key = utu._store()._key("caos-local")  # this run's isolated tenant key (TEST-SAFETY-0.1)
     redis = utu._store()._repo.redis
     installed = await redis.hgetall(key)
+    assert installed  # the fixture's first install really lives under this key
     approved = json.loads(Path("config/genesis.local.pin.json").read_text())
     pin_file = tmp_path / "pin.json"
     monkeypatch.setenv(PIN_FILE_ENV, str(pin_file))
@@ -351,7 +355,7 @@ async def test_a_refused_pin_aborts_the_whole_application_startup(
     refusal,
 ):
     built = await genesis.build_local_app(monkeypatch)  # real Genesis wiring, not started
-    key = RedisRevocationStore._key("caos-local")
+    key = built.utu_store._key("caos-local")  # the only key this run could have written
     try:
         if refusal == "checked_in_pin_on_fresh_tenant":
             monkeypatch.delenv(PIN_FILE_ENV)  # the managed pin never provisions

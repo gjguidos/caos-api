@@ -1,7 +1,6 @@
 """Real Redis 6 integration. Run with UTU_TEST_REDIS_URL; never flush shared DBs."""
 
 import asyncio
-import os
 from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -21,14 +20,17 @@ from src.domains.agentverse.ncsc.cpbx import SynapticExchange
 from src.domains.agentverse.registries.synaptic_registry import SynapticRegistry
 from src.domains.agentverse.security.revocation import RedisRevocationStore
 from src.domains.agentverse.security.utu import UTUAuthority
+from src.domains.agentverse.tests.utu_isolation import (
+    disposable_utu_redis_url,
+    verify_disposable_redis,
+)
 
 
 @pytest_asyncio.fixture
 async def store():
-    url = os.environ.get("UTU_TEST_REDIS_URL")
-    if not url:
-        pytest.skip("Set UTU_TEST_REDIS_URL for Redis 6 integration tests")
+    url = disposable_utu_redis_url()  # TEST-SAFETY-0.1: verified before any connection
     redis = Redis.from_url(url)
+    await verify_disposable_redis(redis)
     prefix = "test:utu:" + uuid4().hex + ":"
     keys = set()
 

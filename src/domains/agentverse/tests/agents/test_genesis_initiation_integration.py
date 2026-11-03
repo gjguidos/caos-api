@@ -72,6 +72,12 @@ from src.domains.agentverse.personalities import (  # noqa: F401 - production re
 from src.domains.agentverse.registries.synaptic_registry import SynapticRegistry
 from src.domains.agentverse.runtime.instances_v2 import AgentInstanceKey
 from src.domains.agentverse.security.policy_pin import PIN_FILE_ENV
+from src.domains.agentverse.tests.utu_isolation import (
+    disposable_utu_redis_url,
+    isolate_utu,
+    new_run_id,
+    verify_disposable_redis,
+)
 
 MANUSCRIPT_SIGNALS = set(_MANUSCRIPT.values())
 
@@ -97,9 +103,10 @@ def opt_in_first_install(monkeypatch) -> Path:
 
 async def build_local_app(monkeypatch) -> SimpleNamespace:
     """The real local Genesis application on disposable Mongo/Redis, not yet started."""
-    url = os.environ.get("UTU_TEST_REDIS_URL")
-    if os.environ.get("OPS2_MONGO_INTEGRATION") != "1" or not url:
+    if os.environ.get("OPS2_MONGO_INTEGRATION") != "1":
         pytest.skip("Requires real Mongo and disposable UTU_TEST_REDIS_URL")
+    # TEST-SAFETY-0.1: verified disposable endpoint before any connection or write.
+    url = disposable_utu_redis_url()
     for key, value in {
         "GENESIS_SESSIONS_ENABLED": "true",
         "GENESIS_LOCAL_ENABLED": "true",
@@ -125,6 +132,12 @@ async def build_local_app(monkeypatch) -> SimpleNamespace:
         settings.database.resolved_uri, require_test_database(disposable_database_name("g14"))
     )
     redis = Redis.from_url(url)
+    try:
+        await verify_disposable_redis(redis)  # refusal: no write, nothing deleted
+    except BaseException:
+        await redis.aclose()
+        shutil.rmtree(pin_directory, ignore_errors=True)
+        raise
     repository = RedisRepositoryImpl(redis)
     container = Container()
     container.database.mongo_client.override(providers.Object(mongo))
@@ -133,6 +146,8 @@ async def build_local_app(monkeypatch) -> SimpleNamespace:
     sessions = security["genesis_security"].sessions
     sessions._keys = ["g14:" + uuid4().hex + suffix for suffix in (":records", ":due")]
     container = initialize_domains(container, **security)
+    # This run owns its UTU tenant key: no other run reads, revokes or deletes it.
+    utu_store = isolate_utu(container, repository, new_run_id())
     # Declarative providers capture the production registry at class definition;
     # explicitly bind this test's isolated registry to both registration and dispatch.
     container.agentverse.synaptic_exchange.add_kwargs(registry=registry)
@@ -166,6 +181,7 @@ async def build_local_app(monkeypatch) -> SimpleNamespace:
         sessions=sessions,
         operator_token=operator_token,
         pin_directory=pin_directory,
+        utu_store=utu_store,
     )
 
 
