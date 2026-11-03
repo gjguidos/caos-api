@@ -21,6 +21,7 @@ from src.base.operations.v2.mongo_managed_repository import managed_from_documen
 from src.base.operations.v2.mongo_repository import COLLECTION_NAME as OPERATIONS_COLLECTION
 from src.domains.agentverse.audit.models import LOGS_COLLECTION
 from src.domains.agentverse.audit.repository import record_from_document
+from src.domains.agentverse.security.policy_pin import PolicyPinError, load_pin
 from src.domains.agentverse.security.revocation import RedisRevocationStore, policy_version
 
 AGENTS_COLLECTION = "coll_agents"
@@ -112,6 +113,12 @@ class Observation:
     policy_file_digest: str | None = None
     policy_version: str | None = None
     installed_policy_version: str | None = None
+    # POLICY-PIN-0.1: the approved pin as startup would read it (file only, no Redis).
+    approved_policy_version: str | None = None
+    policy_transition_from: str | None = None
+    policy_pin_tenant: str | None = None
+    policy_provision_unprovisioned: bool = False
+    pin_error: str | None = None
     roles: frozenset[str] = frozenset()
     souls: frozenset[str] = frozenset()
     agent_types: frozenset[str] = frozenset()
@@ -199,6 +206,14 @@ async def observe(
     )
     if observation.policy is not None:
         observation.policy_version = policy_version(observation.policy.authorization)
+    try:
+        pin, _ = load_pin(os.environ.get("GENESIS_SECURITY_POLICY_FILE"))
+        observation.approved_policy_version = pin.approved_policy_version
+        observation.policy_transition_from = pin.transition_from
+        observation.policy_pin_tenant = pin.tenant_id
+        observation.policy_provision_unprovisioned = pin.provision_unprovisioned
+    except PolicyPinError as exc:
+        observation.pin_error = str(exc)
     observation.roles, observation.souls, observation.agent_types = registry_keys()
     observation.services = declared_services()
 

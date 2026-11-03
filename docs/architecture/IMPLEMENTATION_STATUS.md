@@ -25,6 +25,19 @@ This page is evidence-labelled guidance, not proof. A session must confirm it ag
   CosmosDB verification (OPS V2 `$$NOW` pipelines, Store partial index), and the Genesis
   integration test-isolation finding (below; the one sequential failure is unexplained).
 
+**POLICY-PIN-0.1 — Explicit startup authorization guard** (implemented in source and
+disposable tests only, uncommitted; awaiting architectural review). See
+[UTU Policy Pin](../UTU_POLICY_PIN.md) and [Security Findings](../SECURITY_FINDINGS.md)
+STARTUP-POLICY-1.
+- **Guard:** startup and every reload accept only the approved pin
+  (`config/genesis.local.pin.json`, `88cdfa80…`, `provision_unprovisioned: false`). They
+  install only as an explicitly consented first install or an explicit `transition_from`
+  transition, and refuse without writes otherwise. Outcomes are logged (operational
+  only).
+- **Unchanged:** no grant, trusted line or live policy change.
+- **Tests:** 20 new, after the review corrections. Full backend 3253 passed, 11 skipped,
+  5 inherited root-signing failures.
+
 **MIG-FIX-0.1 — Conversation compatibility hardening** (implemented in source and
 disposable tests only, committed in `c1719b9`; accepted). See
 [ADR-0004 §14](decisions/ADR-0004-conversation-tool-and-activity-context.md) and

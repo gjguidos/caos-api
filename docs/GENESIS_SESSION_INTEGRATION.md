@@ -59,8 +59,10 @@ in `REDIS_PASSWORD` and every consumer's `REDIS_URL`. Do not commit secrets.
 no trusted nested lines or LLM grants. Local startup verifies that exact scope,
 creates a private V1-schema-compatible Adam definition if absent, and rejects
 conflicting persisted ownership. It reads the authoritative Redis policy version
-and passes that exact value to UTU `install_policy(expected=...)` when absent or
-changed. Identical policy restarts preserve the version; CAS conflicts propagate.
+and, since POLICY-PIN-0.1 ([UTU Policy Pin](UTU_POLICY_PIN.md)), accepts only the
+explicitly pinned version: it installs (CAS on the exact stored value) only into an
+unprovisioned tenant or as the pinned transition, and otherwise refuses to start without
+writing. Identical policy restarts preserve the version; CAS conflicts propagate.
 No client request installs policy. The local bootstrap and enrollment bridge
 require all four development/auth/Genesis gates and reject production/Entra.
 

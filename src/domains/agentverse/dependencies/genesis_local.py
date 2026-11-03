@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 from src.base.events.v2.contracts import EventPermissionError
 from src.domains.agentverse.agents.genesis.initiation import SIGNAL, THOTH_SIGNAL, GenesisHandoff
 from src.domains.agentverse.agents.lifecycle.agent_principal_resolver import SystemCitizen
-from src.domains.agentverse.security.revocation import policy_version
+from src.domains.agentverse.security.policy_pin import enforce_policy_pin, load_pin
 from src.domains.agentverse.tools.store_tool.models import ProvisionedIdentity
 
 TENANT = "caos-local"
@@ -158,10 +158,20 @@ async def initialize_local(container: Container) -> None:
     for citizen in CITIZENS.values():
         # Enki is created only through Genesis; citizens are never seeded.
         await _check_legacy_citizen(definitions, citizen)
-    store = av.utu_authority()._store()
-    expected = await store.current_policy(TENANT)
-    if expected is None or expected.split(":")[-1] != policy_version(policy):
-        await av.utu_authority().install_policy(TENANT, expected=expected, authorization=policy)
+    # POLICY-PIN-0.1: startup (and every reload) verifies the explicitly approved policy;
+    # it installs only as a consented first install (absent policy) or the pinned
+    # transition, and fails closed before any write otherwise. It never overwrites an
+    # installed mismatch.
+    pin, pin_file = load_pin(os.environ.get("GENESIS_SECURITY_POLICY_FILE"))
+    utu = av.utu_authority()
+    await enforce_policy_pin(
+        store=utu._store(),
+        utu=utu,
+        policy=policy,
+        pin=pin,
+        tenant_id=TENANT,
+        source=pin_file,
+    )
 
 
 async def _check_legacy_citizen(definitions: Any, citizen: SystemCitizen) -> None:

@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import os
+import shutil
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
@@ -68,6 +69,9 @@ from src.domains.agentverse.personalities import thoth as thoth_soul  # noqa: F4
 from src.domains.agentverse.registries.synaptic_registry import SynapticRegistry
 from src.domains.agentverse.runtime.instances_v2 import AgentInstanceKey
 from src.domains.agentverse.security.revocation import ExecutionPermit
+from src.domains.agentverse.tests.agents.test_genesis_initiation_integration import (
+    opt_in_first_install,
+)
 
 UNRELATED = {"id": "unrelated-agent", "name": "Unrelated", "type": "chat", "creator": "x"}
 
@@ -92,6 +96,7 @@ async def world(monkeypatch):
         "LOCAL_JWT_SECRET": "bootstrap-test-secret-that-is-at-least-32-characters",
     }.items():
         monkeypatch.setenv(key, value)
+    pin_directory = opt_in_first_install(monkeypatch)  # POLICY-PIN-0.1 fresh tenant
     for module in ("date_time_tool", "analyze_tool", "refine_tool", "evaluate_tool"):
         importlib.import_module("src.domains.agentverse.tools." + module)
     registry_instances.agent_registry_instance.bind_spec(chat_spec)(ChatAgent)
@@ -152,6 +157,7 @@ async def world(monkeypatch):
             await mongo.client.drop_database(mongo.db_name)
         await mongo.disconnect()
         await redis.aclose()
+        shutil.rmtree(pin_directory, ignore_errors=True)
 
 
 async def inventory(w):

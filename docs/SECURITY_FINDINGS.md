@@ -8,6 +8,32 @@ runtime policy.
 
 ---
 
+## STARTUP-POLICY-1 — Startup and reload installed any checked-in UTU policy
+
+**Status:** corrected, uncommitted (2026-11-03, POLICY-PIN-0.1); awaiting architectural
+review. Found during Stage 2 readiness (the unexplained API starts on 2026-10-31 and
+2026-11-03 were preceded by Docker Desktop GUI actions).
+**Severity:** moderate. A policy edit in the mounted checkout became installed authority
+on any container start or Uvicorn reload (any `.py` edit), without review.
+- **Correction:** `initialize_local` enforces an approved policy pin:
+  - startup refuses, without writes, unless the checked-in policy equals the pin and the
+    installed policy equals it;
+  - it installs only as a consented first install (absent policy) or the pinned
+    transition, through the existing compare-and-set;
+  - an installed mismatch is never overwritten;
+  - a first install needs explicit `provision_unprovisioned` consent, which is `false`
+    in the checked-in pin, so a managed tenant whose policy disappeared refuses to start;
+  - compare-and-set failures are actionable refusals, and outcomes are logged
+    (operational only, not durable provenance).
+- **Evidence:** `agents/lifecycle/tests/test_policy_pin.py` (including a whole-lifespan
+  abort) and the updated `test_genesis_local.py` (disposable Redis), plus the Nataraja
+  pin findings, including tenant mismatch and stale transitions.
+- **Related, not changed:** Compose `restart: always`; Docker Desktop can still start the
+  container (it now fails closed on an unapproved policy). See
+  [UTU Policy Pin](UTU_POLICY_PIN.md).
+
+---
+
 ## ACTCONSENT-1 — Legacy compatibility consented to every activity contract
 
 **Status:** corrected, committed in `c1719b9` (2026-10-31, MIG-FIX-0.1); accepted.

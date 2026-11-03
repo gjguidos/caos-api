@@ -8,9 +8,13 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import json
 import os
 import secrets
+import shutil
+import tempfile
 import time
+from pathlib import Path
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
@@ -67,6 +71,7 @@ from src.domains.agentverse.personalities import (  # noqa: F401 - production re
 )
 from src.domains.agentverse.registries.synaptic_registry import SynapticRegistry
 from src.domains.agentverse.runtime.instances_v2 import AgentInstanceKey
+from src.domains.agentverse.security.policy_pin import PIN_FILE_ENV
 
 MANUSCRIPT_SIGNALS = set(_MANUSCRIPT.values())
 
@@ -76,8 +81,22 @@ class NoInference:
         raise AssertionError("Genesis initiation must not perform inference")
 
 
-@pytest_asyncio.fixture
-async def local_app(monkeypatch):
+def opt_in_first_install(monkeypatch) -> Path:
+    """POLICY-PIN-0.1: a fresh disposable tenant needs explicit first-install consent.
+
+    The checked-in pin never provisions (``provision_unprovisioned: false``); disposable
+    fixtures use a copy of it that opts in. Returns the directory to remove afterwards.
+    """
+    approved = json.loads(Path("config/genesis.local.pin.json").read_text())
+    directory = Path(tempfile.mkdtemp(prefix="caos-pin-"))
+    pin = directory / "genesis.local.pin.json"
+    pin.write_text(json.dumps(approved | {"provision_unprovisioned": True}))
+    monkeypatch.setenv(PIN_FILE_ENV, str(pin))
+    return directory
+
+
+async def build_local_app(monkeypatch) -> SimpleNamespace:
+    """The real local Genesis application on disposable Mongo/Redis, not yet started."""
     url = os.environ.get("UTU_TEST_REDIS_URL")
     if os.environ.get("OPS2_MONGO_INTEGRATION") != "1" or not url:
         pytest.skip("Requires real Mongo and disposable UTU_TEST_REDIS_URL")
@@ -91,6 +110,7 @@ async def local_app(monkeypatch):
         monkeypatch.setenv(key, value)
     secret = secrets.token_urlsafe(48)
     monkeypatch.setenv("LOCAL_JWT_SECRET", secret)
+    pin_directory = opt_in_first_install(monkeypatch)
     # The full application discovers these production specs before lifespan.
     for module in ("date_time_tool", "analyze_tool", "refine_tool", "evaluate_tool"):
         importlib.import_module("src.domains.agentverse.tools." + module)
@@ -137,6 +157,38 @@ async def local_app(monkeypatch):
             algorithm="HS256",
         )
 
+    return SimpleNamespace(
+        app=app,
+        container=container,
+        registry=registry,
+        mongo=mongo,
+        redis=redis,
+        sessions=sessions,
+        operator_token=operator_token,
+        pin_directory=pin_directory,
+    )
+
+
+async def close_local_app(built: SimpleNamespace) -> None:
+    container, sessions, redis, mongo = built.container, built.sessions, built.redis, built.mongo
+    await container.agentverse.agent_lifecycle_service().shutdown()
+    await sessions.close()
+    await redis.delete(*sessions._keys)
+    # All tenant revocation keys in this fixture live in disposable Redis.
+    authority = container.agentverse.utu_authority()
+    await redis.delete(authority._store()._key(TENANT))
+    if mongo.client is not None:
+        await mongo.client.drop_database(mongo.db_name)
+    await mongo.disconnect()
+    await redis.aclose()
+    shutil.rmtree(built.pin_directory, ignore_errors=True)
+
+
+@pytest_asyncio.fixture
+async def local_app(monkeypatch):
+    built = await build_local_app(monkeypatch)
+    app, container, registry = built.app, built.container, built.registry
+    mongo, sessions, operator_token = built.mongo, built.sessions, built.operator_token
     try:
         await app.state.start_genesis_sessions()
         token = operator_token()
@@ -159,16 +211,7 @@ async def local_app(monkeypatch):
                 operator_token=operator_token,
             )
     finally:
-        await container.agentverse.agent_lifecycle_service().shutdown()
-        await sessions.close()
-        await redis.delete(*sessions._keys)
-        # All tenant revocation keys in this fixture live in disposable Redis.
-        authority = container.agentverse.utu_authority()
-        await redis.delete(authority._store()._key(TENANT))
-        if mongo.client is not None:
-            await mongo.client.drop_database(mongo.db_name)
-        await mongo.disconnect()
-        await redis.aclose()
+        await close_local_app(built)
 
 
 def endpoint(signal=SIGNAL):

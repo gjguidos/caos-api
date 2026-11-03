@@ -275,8 +275,52 @@ def test_drift_unmanaged_and_manual_agents_are_classified(local_env, manifest):
     assert {"agent.definition_drift", "agent.unmanaged", "policy.revision_drift"} <= codes(report)
     plan = {p["action"]: p for p in report["reconciliation_plan"]}
     assert plan["replace_definition_through_genesis"]["destructive"] is True
-    assert plan["restart_api_with_checked_in_policy"]["requires_human_approval"] is True
+    # POLICY-PIN-0.1: drift needs a reviewed pin transition, never just a restart.
+    assert plan["approve_policy_pin_transition"]["requires_human_approval"] is True
+    assert "transition_from" in plan["approve_policy_pin_transition"]["authority"]
     assert resources["agent.creation_draft.create"]["status"] == "blocked"
+
+
+def test_policy_pin_states_predict_what_the_next_start_accepts(local_env, manifest):
+    # POLICY-PIN-0.1: the observation carries the approved pin as startup reads it.
+    source = baseline(local_env).policy_version
+    other = "f" * 64
+
+    def policy_report(**pin: Any) -> tuple[str, set[str], dict[str, Any]]:
+        observed = baseline(local_env, **({"policy_pin_tenant": "caos-local"} | pin))
+        report = evaluate(manifest, observed, mode="inspect")
+        return by(report, "resources")["genesis-policy"]["status"], codes(report), report
+
+    status, found, report = policy_report(approved_policy_version=source)
+    assert status == "passed" and not {c for c in found if c.startswith("policy.")}
+    assert report["revisions"]["approved_policy_version"] == source
+    status, found, _ = policy_report(approved_policy_version=other)
+    assert status == "failed" and "policy.pin_mismatch" in found
+    status, found, _ = policy_report(pin_error="Approved policy pin x is required")
+    assert status == "failed" and "policy.pin_invalid" in found
+    status, found, _ = policy_report(approved_policy_version=source, installed_policy_version=other)
+    assert status == "failed" and "policy.installed_not_pinned" in found
+    status, found, _ = policy_report(
+        approved_policy_version=source,
+        installed_policy_version=other,
+        policy_transition_from=other,
+    )
+    assert status == "warning" and "policy.transition_armed" in found
+    # The guard's tenant check is predicted too.
+    status, found, _ = policy_report(approved_policy_version=source, policy_pin_tenant="other")
+    assert status == "failed" and "policy.pin_tenant_mismatch" in found
+    # A completed transition left armed is reported, not silently accepted.
+    status, found, _ = policy_report(approved_policy_version=source, policy_transition_from=other)
+    assert status == "warning" and "policy.transition_stale" in found
+    # An absent installed policy is refused unless the pin consents to a first install.
+    status, found, _ = policy_report(approved_policy_version=source, installed_policy_version=None)
+    assert status == "failed" and "policy.unprovisioned_refused" in found
+    status, found, _ = policy_report(
+        approved_policy_version=source,
+        installed_policy_version=None,
+        policy_provision_unprovisioned=True,
+    )
+    assert "policy.unprovisioned_refused" not in found and "policy.not_installed" in found
 
 
 def test_corrupt_evidence_and_unfinished_operations_are_reported(local_env, manifest):

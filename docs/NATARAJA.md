@@ -113,6 +113,27 @@ conversation is composed ([Conversation Tool](CONVERSATION_TOOL.md) §6):
 - **Expected live result (inspection not run in this task):** Enki, Thoth and Nabu
   report `implicit: true` until governed revision attaches the Tool.
 
+## Policy pin (POLICY-PIN-0.1)
+
+Implemented, uncommitted. `inspect` reads the approved pin exactly as startup does (file
+only) and reports `revisions.approved_policy_version`. It predicts what the next start or
+reload accepts:
+
+| Finding | Meaning |
+| --- | --- |
+| `policy.pin_invalid` (failed) | The pin is missing or invalid |
+| `policy.pin_tenant_mismatch` (failed) | The pin is for another tenant |
+| `policy.pin_mismatch` (failed) | The checked-in policy is not the approved version |
+| `policy.unprovisioned_refused` (failed) | No installed policy, and the pin does not consent to a first install |
+| `policy.transition_stale` (warning) | Installed already equals the pin, but `transition_from` is still set |
+| `policy.installed_not_pinned` (failed) | The installed policy differs from the pin and no transition is authorized |
+| `policy.transition_armed` (warning) | The pinned transition will install at the next start |
+
+Policy drift proposes `approve_policy_pin_transition` (a reviewed pin change), not a
+restart.
+
+See [UTU Policy Pin](UTU_POLICY_PIN.md).
+
 ## Definition history inspection (REV-1, REV-5)
 
 Implemented, committed (`c1719b9`). `inspect` reports one `definition_baseline` resource per

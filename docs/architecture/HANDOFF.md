@@ -267,7 +267,8 @@ changed. Do not inspect or mutate the live environment merely to refresh this pa
   `system.agent_drafts@1.0.0`; no findings; Enki reported sleeping (in-process runtimes do
   not survive reloads); no draft/proposal collections in live `caos`.
 - The development API runs `uvicorn --reload` with `src/` mounted: source edits restart
-  it and it runs the **uncommitted** code. A restart installs a changed policy revision,
+  it and it runs the **uncommitted** code. A restart installed a changed policy revision
+  (until POLICY-PIN-0.1: now only the pinned transition, [UTU Policy Pin](../UTU_POLICY_PIN.md)),
   verifies existing bootstrap Agents read-only, creates a missing Enki, and activates nothing.
 - Backend suite: all passing except **5 inherited failures** in
   `src/base/events/v2/tests/test_root_signing_key_wiring.py`. Client suite: 33 inherited

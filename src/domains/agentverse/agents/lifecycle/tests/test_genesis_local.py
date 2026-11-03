@@ -1,3 +1,5 @@
+import json
+import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -23,11 +25,14 @@ from src.domains.agentverse.dependencies.genesis_local import (
 )
 from src.domains.agentverse.ncsc.authorization import SynapticAuthorization
 from src.domains.agentverse.ncsc.models import SynapticGrants, TrustedLine
+from src.domains.agentverse.security.policy_pin import PIN_FILE_ENV, PolicyPinError
 from src.domains.agentverse.security.revocation import policy_version
 
 
 @pytest.fixture
-def local(monkeypatch):
+def local(monkeypatch, tmp_path):
+    # POLICY-PIN-0.1: each container writes the pin approving its own policy here.
+    monkeypatch.setenv(PIN_FILE_ENV, str(tmp_path / "genesis.local.pin.json"))
     for key, value in {
         "GENESIS_LOCAL_ENABLED": "true",
         "GENESIS_SESSIONS_ENABLED": "true",
@@ -70,12 +75,26 @@ def local_container(
     lines=(),
     citizens=None,
     current=None,
+    transition_from=None,
+    provision=True,  # a fresh disposable tenant opts in; "unconsented" checks the default
 ):
     grants = LOCAL_GRANTS if grants is None else grants
     policy = SynapticAuthorization(
         grants={(TENANT, agent): SynapticGrants(invoke) for agent, invoke in grants.items()},
         trusted_lines=lines,
     )
+    with open(os.environ[PIN_FILE_ENV], "w") as pin:
+        json.dump(
+            {
+                "contract": "caos.utu_policy_pin",
+                "schema_version": 1,
+                "tenant_id": TENANT,
+                "approved_policy_version": policy_version(policy),
+                "transition_from": transition_from,
+                "provision_unprovisioned": provision,
+            },
+            pin,
+        )
     approvals = (
         {(TENANT, a): AgentActivationApproval(TENANT, a, OWNER, True) for a in grants}
         if approvals is None
@@ -100,18 +119,39 @@ def local_container(
     return SimpleNamespace(agentverse=av), definitions, utu
 
 
+OLD_VERSION = "0" * 64
+
+
 @pytest.mark.asyncio
-@pytest.mark.parametrize("mode", ["missing", "same", "changed"])
+@pytest.mark.parametrize("mode", ["missing", "unconsented", "same", "changed", "transition"])
 async def test_local_bootstrap_seeds_nothing_and_installs_policy_by_cas(local, mode):
     policy = SynapticAuthorization(
         grants={(TENANT, a): SynapticGrants(invoke) for a, invoke in LOCAL_GRANTS.items()}
     )
     expected = {
         "missing": None,
+        "unconsented": None,
         "same": "incarnation:" + policy_version(policy),
-        "changed": "old:digest",
+        "changed": "old:" + OLD_VERSION,
+        "transition": "old:" + OLD_VERSION,
     }[mode]
-    container, definitions, utu = local_container(current=expected)
+    container, definitions, utu = local_container(
+        current=expected,
+        transition_from=OLD_VERSION if mode == "transition" else None,
+        provision=mode != "unconsented",
+    )
+    if mode == "unconsented":
+        # POLICY-PIN-0.1: a missing installed policy is never provisioned implicitly.
+        with pytest.raises(PolicyPinError, match="does not authorize a first install"):
+            await initialize_local(container)
+        utu.install_policy.assert_not_awaited()
+        return
+    if mode == "changed":
+        # POLICY-PIN-0.1: an installed mismatch is never overwritten by a restart.
+        with pytest.raises(PolicyPinError, match="no transition from it is authorized"):
+            await initialize_local(container)
+        utu.install_policy.assert_not_awaited()
+        return
     await initialize_local(container)
     # No Adam bootstrap; Enki only through Genesis; citizens never coll_agents.
     definitions.repository.create.assert_not_awaited()
@@ -122,9 +162,10 @@ async def test_local_bootstrap_seeds_nothing_and_installs_policy_by_cas(local, m
         utu.install_policy.assert_awaited_once()
         assert utu.install_policy.call_args.kwargs["expected"] == expected
     # Any CAS failure propagates; there is no unconditional overwrite fallback.
-    if mode == "changed":
+    if mode == "transition":
         utu.install_policy.side_effect = EventPermissionError("conflict")
-        with pytest.raises(EventPermissionError):
+        # Translated to an actionable refusal; the prior authority is kept.
+        with pytest.raises(PolicyPinError, match="prior authority is kept"):
             await initialize_local(container)
 
 

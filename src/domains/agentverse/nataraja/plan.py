@@ -171,6 +171,7 @@ def evaluate(
             "policy_file_digest": o.policy_file_digest,
             "policy_version": o.policy_version,
             "installed_policy_version": o.installed_policy_version,
+            "approved_policy_version": o.approved_policy_version,
             "runtime_policy_version": (o.runtime or {}).get("policy_version"),
             "runtime_boot_id": ((o.runtime or {}).get("process") or {}).get("boot_id"),
         },
@@ -222,18 +223,105 @@ def _policy(b: _Builder, manifest: EnvironmentManifest, o: Observation) -> None:
         )
         b.action(
             "genesis-policy",
-            "restart_api_with_checked_in_policy",
+            "approve_policy_pin_transition",
             expected=o.policy_version,
             actual=installed,
             classification="drift",
-            responsible="UTU (startup install_policy)",
-            authority="Operator restart of the development API; startup policy CAS",
+            responsible="UTU (startup pinned policy CAS)",
+            # A restart alone never installs a different policy (POLICY-PIN-0.1).
+            authority=(
+                "Reviewed pin change (approved_policy_version, transition_from = the exact "
+                "installed version), then an operator restart (docs/UTU_POLICY_PIN.md §3)"
+            ),
         )
     else:
         status = "passed"
+    status = _policy_pin(b, manifest, o, status)
     b.resource(
         "policy", "genesis-policy", "Genesis security policy", status, tenant_id=manifest.tenant_id
     )
+
+
+def _policy_pin(
+    b: _Builder, manifest: EnvironmentManifest, o: Observation, status: Status
+) -> Status:
+    """POLICY-PIN-0.1: what the next start or reload will accept (read-only), in the
+    same order as ``enforce_policy_pin``."""
+    if o.pin_error is None and o.approved_policy_version is None:
+        return status  # Not observed (no pin evidence in this observation).
+    worst = {"passed": 0, "warning": 1, "failed": 2}
+    found: list[tuple[str, Status, str]] = []
+    approved = o.approved_policy_version
+    installed = o.installed_policy_version
+    if o.pin_error is not None:
+        found.append(("policy.pin_invalid", "failed", o.pin_error))
+    elif o.policy_pin_tenant != manifest.tenant_id:
+        found.append(
+            (
+                "policy.pin_tenant_mismatch",
+                "failed",
+                "The approved pin is for another tenant; the next start will refuse",
+            )
+        )
+    elif approved != o.policy_version:
+        found.append(
+            (
+                "policy.pin_mismatch",
+                "failed",
+                "The checked-in policy is not the approved pin; the next start will refuse",
+            )
+        )
+    elif installed is None and not o.policy_provision_unprovisioned:
+        found.append(
+            (
+                "policy.unprovisioned_refused",
+                "failed",
+                (
+                    "UTU has no installed tenant policy and the pin does not authorize a "
+                    "first install; the next start will refuse (investigate loss or the "
+                    "wrong Redis before consenting)"
+                ),
+            )
+        )
+    elif installed == approved and o.policy_transition_from is not None:
+        found.append(
+            (
+                "policy.transition_stale",
+                "warning",
+                (
+                    "The installed policy already equals the approved pin but transition_from "
+                    "is still set; disarm it in a reviewed change"
+                ),
+            )
+        )
+    elif installed is not None and installed != approved:
+        if installed == o.policy_transition_from:
+            found.append(
+                (
+                    "policy.transition_armed",
+                    "warning",
+                    (
+                        "The approved pin authorizes replacing the installed policy; the next "
+                        "start or reload installs it"
+                    ),
+                )
+            )
+        else:
+            found.append(
+                (
+                    "policy.installed_not_pinned",
+                    "failed",
+                    (
+                        "The installed policy is not the approved pin and no transition from it "
+                        "is authorized; the next start will refuse"
+                    ),
+                )
+            )
+    for code, level, message in found:
+        b.finding(code, "genesis-policy", level, message)
+        if worst[level] > worst.get(status, 0):
+            status = level
+    return status
 
 
 def _citizens(b: _Builder, manifest: EnvironmentManifest, policy: Any) -> None:
@@ -839,7 +927,12 @@ def _startup(
         "API start / source reload effects",
         "warning" if armed else "passed",
         effects=(
-            ["installs the checked-in UTU policy when its revision changed"]
+            [
+                (
+                    "verifies the installed UTU policy against the approved pin; installs only "
+                    "as a consented first install or the pinned transition"
+                )
+            ]
             + [f"creates {name} through Genesis" for name in armed]
             + ["verifies existing bootstrap Agents read-only", "activates no Agent"]
         ),

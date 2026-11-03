@@ -1,0 +1,8 @@
+{
+  "contract": "caos.utu_policy_pin",
+  "schema_version": 1,
+  "tenant_id": "caos-local",
+  "approved_policy_version": "88cdfa803c6dc2e758a4648e6b6214b0aaf38419b63231ee6e3c96d2a96cd182",
+  "transition_from": null,
+  "provision_unprovisioned": false
+}
