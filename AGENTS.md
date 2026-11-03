@@ -62,6 +62,13 @@ docker compose exec api python -m pytest
 docker compose exec api python -m pytest path/to/test_file.py
 ```
 
+These commands are for non-destructive tests only. Destructive UTU and Genesis
+integration tests run only through `scripts/test-harness/run.sh`: internal network,
+harness-declared Redis identity, no live credentials (see
+`scripts/test-harness/README.md`). The live API container can reach live Redis and Mongo,
+so those tests skip there, or are refused. The 5 `test_root_signing_key_wiring.py`
+failures are inherited.
+
 Use the existing container and development tooling. Do not introduce additional package managers or infrastructure without a reason.
 
 ## Architecture

@@ -10,33 +10,129 @@ This page is evidence-labelled guidance, not proof. A session must confirm it ag
 
 ## Current milestone
 
-**Integration state (2026-10-31, `feature/ops-v2` @ `c1719b9`, local, not pushed):**
-- **Committed source:** CONV-REC-0.1, MANUSCRIPT-0.1C, AGENT-CTX-0.1, CONVERSATION-0.1A,
-  AGENT-DEF-SEC-0.1, REV-1 to REV-5, MIG-FIX-0.1 and the PTAH-0.0, ADR-0004 and ADR-0005
-  documents are committed in `c1719b9`. Conversation, Activity Context and governed
-  revision (REV-1 to REV-5) are implemented in source.
-- **Tested:** disposable MongoDB/Redis only; full backend 3233 passed, 11 skipped, 5
-  inherited root-signing failures.
-- **Not deployed or enabled:** the `store.revise.approved@1.0.0` grant is neither in the
-  checked-in policy nor installed (installed policy `88cdfa80…`); Enki and Thoth have not
-  been migrated (they converse through the legacy compatibility entries); the
-  development API (`caos-api`) remains stopped with restart policy `no`.
-- **Open:** DEF-6 (duplicate Agent identity remediation; revision fails closed),
-  CosmosDB verification (OPS V2 `$$NOW` pipelines, Store partial index), and the Genesis
-  integration test-isolation finding (below; the one sequential failure is unexplained).
+**Current state (2026-11-03, verified; DOC-SYNC-0.2):**
+- **Repository:** `feature/ops-v2`, code baseline `236fce0`, pushed. The DOC-SYNC-0.2
+  documentation commit sits on top. Committed and published:
+  - `c1719b9`: integration of CONV-REC-0.1 through MIG-FIX-0.1, REV-1 to REV-5;
+  - `dcf2d11`: docs reconciliation;
+  - `7db5350`: STARTUP-POLICY-1;
+  - `236fce0`: TEST-SAFETY-0.1.
+- **Runtime (observed 2026-11-03):**
+  - the development API (`caos-api`) is running (started 20:57:45Z), restart policy
+    `no`; `docker-compose.yml` still says `restart: always`;
+  - startup logged `UTU policy pin verified`;
+  - Nataraja `inspect` reports `passed`; source, approved pin, installed and runtime
+    policy are all `88cdfa80…`.
+- **Tested:** through the disposable harness (`scripts/test-harness/run.sh`): full
+  backend 3277 passed, 11 skipped, 5 inherited root-signing failures.
+- **Not enabled live:**
+  - the `store.revise.approved@1.0.0` grant is neither in the checked-in policy nor
+    installed;
+  - Enki and Thoth have not been migrated (legacy compatibility entries);
+  - Stage 2 has not been executed (§ Stage 2 prerequisites below).
+- **Open findings:**
+  - OPS-LEASE-1, TEST-CLEANUP-1 (test hygiene), DEF-6, COSMOS-1 and REV-REC-1 (states 8
+    and 9 escalate-only for local Stage 2);
+  - POLICY-PROV-1, for production ([Security Findings](../SECURITY_FINDINGS.md));
+  - DEF-5 accepted ([Agent Definition Governance](../AGENT_DEFINITION_GOVERNANCE.md) §4);
+  - operationally: reconciling Compose `restart: always` with the container's restart
+    policy `no` remains outstanding;
+  - decided: Nataraja `verify`'s test-running mode needs the disposable harness.
 
-**POLICY-PIN-0.1 — Explicit startup authorization guard** (implemented in source and
-disposable tests only, uncommitted; awaiting architectural review). See
+**TEST-SAFETY-0.1 — Disposable integration-test infrastructure** (committed in `236fce0`,
+pushed, integrated and verified 2026-11-03). See
+[the harness README](../../scripts/test-harness/README.md) and
+[Security Findings](../SECURITY_FINDINGS.md) TEST-ISOLATION-1.
+- **Harness:** `scripts/test-harness/run.sh` is the only supported path for destructive
+  UTU and Genesis integration tests:
+  - an internal network, tmpfs services and a read-only source mount;
+  - no `.env` and no published ports;
+  - the Redis process identity (`UTU_TEST_REDIS_RUN_ID`) is declared by the harness.
+- **Fixtures:** before any write they verify:
+  - the endpoint, against the live configuration;
+  - that the runner has no default route;
+  - the Redis `run_id`;
+  - the absence of production-format authority keys.
+  Each run then owns its own UTU key prefix and deletes only what it created.
+- **Concurrency:** the overlap that used to fail with a shared-key 403 now passes.
+  Every failure captured since was OPS-LEASE-1, not UTU. The original single
+  sequential failure left no traceback and stays unexplained.
+
+**POLICY-PIN-0.1 / STARTUP-POLICY-1 — Explicit startup authorization guard** (committed in
+`7db5350`, pushed, integrated 2026-11-03; startup verified). See
 [UTU Policy Pin](../UTU_POLICY_PIN.md) and [Security Findings](../SECURITY_FINDINGS.md)
 STARTUP-POLICY-1.
 - **Guard:** startup and every reload accept only the approved pin
   (`config/genesis.local.pin.json`, `88cdfa80…`, `provision_unprovisioned: false`). They
   install only as an explicitly consented first install or an explicit `transition_from`
-  transition, and refuse without writes otherwise. Outcomes are logged (operational
-  only).
+  transition, and refuse without writes otherwise.
+- **Logging:** outcomes are logged, which is operational only (see the production
+  provenance gap in Stage 2 prerequisites).
 - **Unchanged:** no grant, trusted line or live policy change.
-- **Tests:** 20 new, after the review corrections. Full backend 3253 passed, 11 skipped,
-  5 inherited root-signing failures.
+
+**Stage 2 prerequisites (documented, not executed).** Stage 2 activates governed revision
+and migrates Enki and Thoth (ADR-0005 §5).
+- **Approved exact-version policy transition:**
+  - add Genesis's `store.revise.approved` to the policy, which changes `policy_version`
+    to `de622113…`, computed from the checked-in policy plus that one grant;
+  - pin it with `transition_from: 88cdfa80…` in one reviewed change, applied with the
+    API stopped ([UTU Policy Pin](../UTU_POLICY_PIN.md) §3);
+  - no trusted line is needed, and `initialize_local` already accepts the grant set.
+- **Capability:** `store.revise.approved@1.0.0` (provider `system.store`, scope
+  `agent.definition.revise`, Genesis only). It is registered only when the installed
+  policy grants it.
+- **Order:** the policy transition comes before any revision review or approval.
+  Reviews and approvals bind the UTU policy revision and fail closed (`stale_authority`)
+  after a change.
+- **Targets:**
+  - the Enki and Thoth tool configurations of ADR-0005 §5 validate against the current
+    registries (re-checked 2026-11-03);
+  - `prompt`, `gui_components` and every other revisable field must be copied verbatim
+    from the live definitions at the time;
+  - the pinned identity fields must not change.
+- **Idempotency and evidence:** claim and application IDs are deterministic; retries of
+  the identical request are safe; Seshat records `approved`, `withdrawn`, `selected` and
+  `applied`.
+- **Keep the authority until applications finish:** removing the revise grant while an
+  application is unfinished makes it unrecoverable until the grant returns.
+- **Limited rollback:**
+  - an Agent definition rolls back only through a new forward revision, which needs the
+    grant;
+  - the policy rolls back through a reverse pin transition;
+  - Seshat evidence and revision records are permanent.
+- **Recovery:** follow the REV-REC-1 runbook
+  ([Agent Definition Governance](../AGENT_DEFINITION_GOVERNANCE.md) §10). States 8 and 9
+  are escalate-only.
+- **Provenance:** for this local Stage 2, operational logging of the policy transition
+  is accepted provisionally. Durable, Seshat-grade policy-transition provenance is an
+  outstanding production governance requirement.
+
+**Enki creation readiness (source evidence, 2026-11-03).**
+- **Existing (verified by tests):**
+  - **Governed human Agent creation through Genesis:** creation drafts with immutable
+    revisions, proposals and human decisions; exact-revision review; human approval;
+    `creation-draft/create` → `store.create.approved` (G3.3, G3.4, DRAFT-0.x).
+  - **Enki's granted capabilities:** the Manuscript session signals
+    (`manuscript.session.*`), `agent.draft.propose`, `catalog.project`,
+    `cognitive.interpret` (reasoning) and `genesis.thoth.request`.
+  - **The creation-interview contract:** `agent.creation_interview@1.0.0` on the generic
+    Activity Context service.
+- **Stage 2 prerequisites:** Enki gains its explicit `conversation`, `manuscript` and
+  `reasoning` Tool attachments only through the Stage 2 revision.
+- **Missing for an end-to-end, Enki-driven creation:**
+  - **No coordinator (ENKI-1.0-B):** no production code path drives Manuscript, draft or
+    reasoning signals from a conversation turn. Only tests invoke them.
+  - **No interview entry point:** no production route or handler starts an Activity
+    Context.
+  - **No interaction contract:** `conversation.submit` and interaction frames (PTAH-0.0)
+    are designs only.
+  - **No end-to-end evidence** of an Enki conversation producing a created Agent exists.
+- **Ptah:** not required for a first backend demonstration (inferred). Governed creation
+  already works over HTTP, and a minimal coordinator driven by plain conversation turns
+  would not need Ptah's interaction frames. This is unverified until a coordinator
+  exists. Ptah (PTAH-0.1a/0.2) remains required for the client experience.
+- **Unverified:** the client (`caos-client`) state; model behavior of the reasoning task
+  in a live turn.
 
 **MIG-FIX-0.1 — Conversation compatibility hardening** (implemented in source and
 disposable tests only, committed in `c1719b9`; accepted). See
@@ -50,11 +146,10 @@ disposable tests only, committed in `c1719b9`; accepted). See
 - **No authority change:** no signal, grant, trusted line, policy or Agent change.
 - **Tests:** 14 new (`activities/tests/test_activity_consent.py`). Full backend 3233
   passed, 11 skipped, 5 inherited root-signing failures.
-- **Genesis intermittent test** (`test_concurrent_requests_and_crash_after_store_converge_on_one_agent`):
-  unchanged code path; it failed once in ten sequential full runs, without a captured
-  traceback, and that failure is unexplained. Overlapping runs reproduce a 403 because
-  the Genesis integration fixture shares one tenant-wide UTU revocation key and deletes
-  it at teardown (a test-isolation weakness; see Handoff). Unresolved.
+- **Genesis intermittent test** (`test_concurrent_requests_and_crash_after_store_converge_on_one_agent`,
+  historical): it failed once in ten sequential full runs, without a captured traceback.
+  The shared-key overlap 403 was fixed by TEST-SAFETY-0.1. Every failure captured since
+  is OPS-LEASE-1. The original event stays unexplained.
 - **Migration readiness (MIG-PRE-0.1, read-only):** policy activation and the Enki/Thoth
   migration are not prepared or authorized.
 
@@ -126,7 +221,7 @@ disposable tests only, committed in `c1719b9`; accepted 2026-10-31). See
   skipped, 5 inherited root-signing failures.
 - **Operational:** the `caos-api` container restart policy was set to `no` (approved);
   `docker-compose.yml` still says `restart: always`, so a compose recreate restores it.
-  The API remains stopped.
+  The API remained stopped at the time (historical; see Current state).
 
 **REV-1 — Immutable Agent definition history and baseline verification** (implemented,
 committed in `c1719b9`; accepted 2026-10-31, with its operational checkpoint). See [ADR-0005 §12–§13](decisions/ADR-0005-governed-agent-definition-revision.md)
@@ -523,5 +618,7 @@ Target chain: `JOSHUA → Genesis → data.validation → store.create → Khepr
 | Enki Tool references | REASONING-0.1C: the coordinator uses Enki's persisted `AgentToolRef.config` | Live Enki has `tools: []`; no governed revision path for an existing Agent (Store is insert-only; V1 PATCH bypasses G3.3/Seshat) | Open — ENKI-COMP-0.1 ([PTAH-0.0 §5](../PTAH_0_0_INTERACTION_CONTRACTS.md)) |
 | Live API pause (2026-10-31) | Handoff: the development API stays paused | Restarted outside this task at 2026-10-30 23:15 UTC; auto-reloaded the uncommitted REASONING-0.1B code 9 times (startup completed each time, so the checked-in revision `88cdfa80…` was installed live and the model check passed); paused again with operator approval | Inspected read-only 2026-10-31 (REASONING-0.1C): installed = source `88cdfa80…`, no live writes after the restart, Enki/Thoth sleeping (in-memory runtimes ended), Nabu present. API remains paused; open only until the operator resumes it |
 | Live API state | Handoff §1 says the development API is paused pending review | Found running (started 2026-10-30 21:05 UTC) at CATALOG-0.1 start; paused again with operator approval before edits | Resolved for now (paused) |
+| Integration and runtime status (DOC-SYNC-0.2) | Status pages said `c1719b9` local/not pushed, POLICY-PIN uncommitted, API stopped, test isolation unresolved | `236fce0` pushed; pin committed and integrated; API running with pin verified; isolation fixed (TEST-SAFETY-0.1) | Resolved 2026-11-03 (DOC-SYNC-0.2) |
+| Integration-test procedure | Several docs ran pytest with `UTU_TEST_REDIS_URL` directly, or Nataraja `verify` in the API container | Destructive tests are refused outside `scripts/test-harness/run.sh` | Resolved 2026-11-03 (DOC-SYNC-0.2) |
 
 Add rows when a session finds drift; resolve them through reviewed changes rather than silent edits.

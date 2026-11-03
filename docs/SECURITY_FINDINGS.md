@@ -6,12 +6,100 @@ evidence. Each entry is labelled **corrected (uncommitted)**, **corrected (commi
 Corrections are reviewed like any other milestone; this page grants nothing and is not
 runtime policy.
 
+## Open findings (2026-11-03, DOC-SYNC-0.2)
+
+| ID | Status | Severity | Summary |
+| --- | --- | --- | --- |
+| OPS-LEASE-1 | Open, classified | Low (local) | OPS V2 correctly fences a late commit after lease expiry; Genesis surfaces it as an unhandled server error |
+| TEST-CLEANUP-1 | Open | Informational | The bootstrap `world` fixture does not release its Redis client or pin directory when pre-write verification refuses |
+| DEF-6 | Open | Low (local), moderate (production) | No unique Agent `id` index; fails closed; migration depends on COSMOS-1 |
+| COSMOS-1 | Unverified | Moderate (production) | CosmosDB compatibility is untested |
+| REV-REC-1 | Open (runbook documented) | Low (local), moderate (production) | No governed recovery for revision-application states 8 and 9 |
+| DEF-5 | Accepted | Low | Governance is marker-based ([Agent Definition Governance](AGENT_DEFINITION_GOVERNANCE.md) §4) |
+| POLICY-PROV-1 | Open (production requirement) | Moderate (production) | Policy transitions are logged but have no durable provenance |
+
+## OPS-LEASE-1 — Late Genesis outcome commit after lease expiry surfaces as a server error
+
+**Status:** open, classified (2026-11-03). Reproduced only under CPU pressure with the
+50 ms provisioner lease that
+`test_concurrent_requests_and_crash_after_store_converge_on_one_agent` sets. A one-off
+occurrence was recorded earlier (Implementation Status, ENKI-CTX-0.1 entry).
+- **Observed:**
+  - when an attempt outlives its lease, OPS V2 `commit_outcome` raises `LeaseExpired`;
+    this is correct fencing of a stale owner;
+  - `_Attempt.run` deliberately re-raises a failed outcome commit and never commits a
+    second outcome (`agents/genesis/__init__.py`);
+  - `AgentCreationService.create` catches only `GenesisOperationInProgress` and
+    `GenesisAuditError` (`agents/creation_review/creation.py`), so the request fails as
+    a server error;
+  - the operation stays running with an expired lease, and the next identical request
+    reconciles it through the existing takeover path.
+- **Not decided:** how Genesis should report this. Neither retries nor a `202` is
+  assumed. The provisioner's default lease is 120 s (`agents/genesis/__init__.py`); the
+  test shortens it to 50 ms.
+
+## TEST-CLEANUP-1 — Bootstrap fixture cleanup on pre-write refusal
+
+**Status:** open, informational (2026-11-03).
+- **Observed:** in `tests/agents/test_genesis_bootstrap_integration.py` (`world`), a
+  refusal by `verify_disposable_redis` skips closing the Redis client and removing the
+  temporary pin directory.
+- **Impact:** nothing is deleted or written, and the harness runner is destroyed
+  afterwards. `build_local_app` already releases both on refusal.
+
+## DEF-6 / COSMOS-1 — Agent identity index and CosmosDB compatibility
+
+**Status:** open (2026-11-03).
+- **DEF-6:**
+  - `coll_agents` has no unique `id` index;
+  - it fails closed: revision application refuses `identity_not_unique`, revision
+    targets require one holder, and Nataraja reports duplicates as `conflicted`;
+  - the index migration needs approval, and depends on COSMOS-1 (whether a unique
+    index can be added to an existing collection on the chosen Cosmos tier).
+- **COSMOS-1:** untested, and the test harness refuses Cosmos. The open items are OPS V2
+  `$$NOW` update pipelines, partial unique indexes (Store idempotency, OPS admission),
+  forced `retryWrites=false`, and Redis Lua support in production.
+
+## REV-REC-1 — Revision-application recovery
+
+**Status:** runbook documented (2026-11-03,
+[Agent Definition Governance](AGENT_DEFINITION_GOVERNANCE.md) §10); capability gap open.
+- **States 1-7:** recoverable by repeating the identical application request.
+- **States 8 and 9:** escalate-only. There is no governed abandon or supersede
+  capability, and no claim deletion, selection reversal or evidence mutation is
+  permitted.
+
+## POLICY-PROV-1 — Policy-transition provenance
+
+**Status:** open, production requirement (2026-11-03).
+- **Current behavior:** policy-pin outcomes (`verified`, `provisioned`, `transitioned`)
+  are logged only. UTU remains the authority.
+- **Local use:** accepted provisionally for local Stage 2.
+- **Production:** requires durable, Seshat-grade provenance for policy transitions.
+
+---
+
+## TEST-ISOLATION-1 — Integration fixtures could delete live UTU authority state
+
+**Status:** corrected, committed in `236fce0` (TEST-SAFETY-0.1), pushed, integrated and
+verified (2026-11-03).
+**Severity:** moderate (required misconfiguration). Fixtures accepted any
+`UTU_TEST_REDIS_URL`, shared the production-format tenant key, and deleted it at teardown.
+- **Correction:**
+  - `scripts/test-harness/run.sh` is the supported path, with an internal network, a
+    harness-declared Redis `run_id`, no `.env` and no published ports;
+  - fixtures verify the endpoint, the no-default-route boundary, the identity and the
+    absence of contamination before any write;
+  - each run owns its own UTU key prefix, and deletes only what it created.
+- **Evidence:** `agents/lifecycle/tests/test_utu_test_isolation.py` (24 tests);
+  concurrent harness runs.
+
 ---
 
 ## STARTUP-POLICY-1 — Startup and reload installed any checked-in UTU policy
 
-**Status:** corrected, uncommitted (2026-11-03, POLICY-PIN-0.1); awaiting architectural
-review. Found during Stage 2 readiness (the unexplained API starts on 2026-10-31 and
+**Status:** corrected, committed in `7db5350` (POLICY-PIN-0.1), pushed, integrated and
+startup-verified (2026-11-03); accepted. Found during Stage 2 readiness (the unexplained API starts on 2026-10-31 and
 2026-11-03 were preceded by Docker Desktop GUI actions).
 **Severity:** moderate. A policy edit in the mounted checkout became installed authority
 on any container start or Uvicorn reload (any `.py` edit), without review.
@@ -142,8 +230,8 @@ The residual risks DEF-1–DEF-5 are listed in
 
 ## VALIDATION-SEC-0.1 — `data.validation` named Tools the requester could not read
 
-**Status:** corrected, uncommitted (2026-10-30, `feature/ops-v2` over `b7c40fb`);
-awaiting architectural review. Found during CATALOG-0.1A ([Catalog §6](CATALOG.md)).
+**Status:** corrected, committed in `b70ab0b` (2026-10-30, `feature/ops-v2`).
+Found during CATALOG-0.1A ([Catalog §6](CATALOG.md)).
 **Severity:** low–moderate information disclosure (identifier and count of internal
 resources; no data, configuration, grant or execution exposure).
 

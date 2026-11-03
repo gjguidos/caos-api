@@ -53,12 +53,14 @@ Generate a random hex Redis password of at least 64 characters and coordinate it
 in `REDIS_PASSWORD` and every consumer's `REDIS_URL`. Do not commit secrets.
 `REDIS_LOCAL_PORT` optionally changes the default host port 6380.
 
-`config/genesis.local.json` approves only tenant `caos-local`, owner
-`00000000-0000-4000-8000-000000000001`, and Adam
-`00000000-0000-4000-8000-000000000002`. Only `chat.context` is granted; there are
-no trusted nested lines or LLM grants. Local startup verifies that exact scope,
-creates a private V1-schema-compatible Adam definition if absent, and rejects
-conflicting persisted ownership. It reads the authoritative Redis policy version
+Historical (G1, superseded): `config/genesis.local.json` once approved only Adam
+(`…0002`) with `chat.context`, and local startup created an Adam definition if absent.
+Today the checked-in policy approves JOSHUA, Genesis, Enki and Thoth for tenant
+`caos-local` and owner `00000000-0000-4000-8000-000000000001`, with no trusted lines.
+Local startup seeds no definitions (Enki and Thoth exist only through Genesis), verifies
+that exact policy, and rejects conflicting persisted ownership
+([Implementation Status](architecture/IMPLEMENTATION_STATUS.md)). It reads the
+authoritative Redis policy version
 and, since POLICY-PIN-0.1 ([UTU Policy Pin](UTU_POLICY_PIN.md)), accepts only the
 explicitly pinned version: it installs (CAS on the exact stored value) only into an
 unprovisioned tenant or as the pinned transition, and otherwise refuses to start without
@@ -207,15 +209,20 @@ refresh still requires its own fresh-sid issuance and trusted provisioning adapt
 
 ## Verification
 
-Use a **disposable Redis 6** URL, never the live authority database:
+Run the session and UTU integration tests only through the disposable harness
+([README](../scripts/test-harness/README.md)), never against the live authority
+database:
 
 ```sh
-UTU_TEST_REDIS_URL=redis://disposable-redis:6379/0 python -m pytest \
+scripts/test-harness/run.sh \
   src/domains/agentverse/agents/lifecycle/tests \
   src/domains/agentverse/ncsc/tests \
   src/base/decorators/middleware/tests/test_ws_session_based.py \
   src/domains/agentverse/tests/websockets/test_ws_route_teardown.py
 ```
+
+Setting `UTU_TEST_REDIS_URL` directly outside the harness is refused before any
+connection (TEST-SAFETY-0.1).
 
 Fixtures create unique namespaces and delete only their own records. New tests
 exercise real JWT verification, cross-tenant/user/agent/session rejection, copied

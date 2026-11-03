@@ -15,8 +15,17 @@ CAOS_TEST_PARALLEL=4 scripts/test-harness/run.sh <tests>      # concurrent runne
   `-q -rfE`.
 - **Image:** the `caos-api-api` image must already be built (override with
   `CAOS_TEST_IMAGE`).
-- **Exit code:** non-zero if any runner fails, or if any harness resource remains after
-  cleanup (code 3).
+- **Exit codes:**
+  - 0: all runners passed;
+  - 1: a runner failed, or the harness refused to start;
+  - 3: a harness resource remained after cleanup;
+  - 130 and 143: interrupted by SIGINT or SIGTERM. Cleanup still runs, and an
+    interrupted run never reports success.
+- **Expected failures:** a full run currently reports 5 inherited failures in
+  `src/base/events/v2/tests/test_root_signing_key_wiring.py`, so the exit code is 1.
+  Their cause is in that test's own container fixture
+  (`AttributeError: 'DynamicContainer' object has no attribute 'mongodb_repository'`),
+  not the harness. Anything else is a regression.
 - **Elsewhere,** for example `docker compose exec api pytest`, these tests skip when
   `UTU_TEST_REDIS_URL` is unset, and are refused before any connection when it is set.
 
@@ -77,6 +86,19 @@ never touches another run's policy, incarnation or revocations.
   runs keep them.
 - **Content:** logs contain pytest output only, with no environment, credentials or
   authority values.
+
+## Why not the live API container
+
+The live API container is attached to the live Compose network, can reach the live
+Redis and MongoDB, and carries the live `.env` credentials. Destructive integration
+tests create, revoke and delete authority state, so they must never run there.
+
+- `docker compose exec api pytest` remains fine for non-destructive tests.
+- The destructive suites skip there when `UTU_TEST_REDIS_URL` is unset. When it is set,
+  they are refused before any connection: the container has a default route and no
+  harness-declared Redis identity.
+- **Nataraja:** `inspect` and `reconcile --dry-run` are read-only and supported in the
+  live container. `verify`'s integration suites belong in this harness.
 
 ## Cleanup and limitations
 

@@ -14,8 +14,13 @@
   - REV-5, accepted at the source/test level, subject to deployment verification
     (runtime definition consistency; §17).
 - **Not approved:** declaring the revise grant in the checked-in policy, and every live
-  operation, including the Enki/Thoth migration. The grant is not installed, Enki and
-  Thoth are not migrated, and the development API remains stopped.
+  operation, including the Enki/Thoth migration. The grant is not installed and Enki and
+  Thoth are not migrated (Stage 2,
+  [Implementation Status](../IMPLEMENTATION_STATUS.md#current-milestone)). Observed
+  2026-11-03: the development API is running with the approved policy pin `88cdfa80…`.
+- **Recovery:** the REV-REC-1 runbook is in
+  [Agent Definition Governance §10](../../AGENT_DEFINITION_GOVERNANCE.md). States 8 and 9
+  are escalate-only.
 
 **Date:** 2026-10-31
 
@@ -745,7 +750,9 @@ policy revision (`88cdfa80…`) is unchanged and nothing was installed or run li
 - REV-1's baseline verifier reports `conflicted` for an Agent that has a projection marker
   but is checked without its chain. Nataraja should read the chain (REV-5).
 - A selected-but-unapplicable revision (e.g. the predecessor changed after selection)
-  keeps its claim and needs operator inspection.
+  keeps its claim and needs operator inspection. It is state 8 of the REV-REC-1 runbook
+  ([Agent Definition Governance §10](../../AGENT_DEFINITION_GOVERNANCE.md)), escalate-only.
+  No governed abandon or supersede capability exists.
 
 **Not done:** runtime reconciliation (REV-5), the Enki/Thoth migration, and declaring the
 grant in the checked-in policy.

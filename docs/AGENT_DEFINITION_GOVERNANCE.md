@@ -77,12 +77,12 @@ their own V1 Workflow routes (§4).
 
 | ID | Risk | Notes |
 | --- | --- | --- |
-| DEF-1 | No governed revision exists, so governed definitions cannot be corrected at all | Proposed: ADR-0005 milestones REV-1 to REV-5, then ENKI-COMP-0.1 |
+| DEF-1 | No governed revision existed, so governed definitions could not be corrected | **Resolved in source** (2026-11-03): REV-1 to REV-5, committed in `c1719b9`. **Not enabled live:** the `store.revise.approved` grant is not installed (Stage 2, [Implementation Status](architecture/IMPLEMENTATION_STATUS.md)) |
 | DEF-2 | A V1 Workflow edit changes the behavior of governed Agents that reference it | Workflow governance is separate; G3.3 binds Workflow versions at review. Proposed separate milestone **WF-GOV-0.1** (ADR-0005 §7) |
 | DEF-3 | Direct database or operator access is outside this boundary | Operational control |
 | DEF-4 | The admin ingest route still reveals Agent existence to admins (`Agent '<id>' not found`) and checks no per-Agent ownership | Pre-existing; unchanged. Proposed separate milestone **V1-INGEST-SEC-0.1** |
-| DEF-5 | Governance is marker-based: a governed definition written without any marker would be treated as V1 | No such writer exists; `store.create` always records both markers. REV-1 added revision records but no new marker (no projection writes yet); an explicit `governance` marker remains proposed for REV-4 |
-| DEF-6 | `coll_agents` has no unique `id` index; `find_by_id` returns an arbitrary holder if duplicates exist | Found in REV-1. Store's scope index blocks same-scope duplicates only. Nataraja now reports any duplicate as a `conflicted` baseline. A unique `id` index needs a separate, approved migration |
+| DEF-5 | Governance is marker-based: a governed definition written without any marker would be treated as V1 | **Accepted risk** (2026-11-03). No such writer exists, and `store.create` always records both markers. REV-4 adds the `definition_revision` projection marker, but `is_governed_definition` (`runtime/compatibility.py`) still keys on `runtime_version`, `store` and `genesis_local_seed`. No explicit governance marker is implemented, and an applied revision keeps its `store` marker |
+| DEF-6 | `coll_agents` has no unique `id` index; `find_by_id` returns an arbitrary holder if duplicates exist | **Open.** Found in REV-1. Store's scope index blocks same-scope duplicates only. **Fails closed:** revision application refuses `identity_not_unique`, revision targets require one holder, and Nataraja reports a duplicate as `conflicted`. A unique `id` index needs a separate, approved migration, which depends on COSMOS-1 ([Security Findings](SECURITY_FINDINGS.md)) |
 
 ## 5. Definition history and baseline verification (REV-1)
 
@@ -184,3 +184,94 @@ source/test level, subject to deployment verification
   projection, incomplete or unevidenced applications, direct mutation, duplicates)
   read-only.
 - **Runtime instances** hold no definitions, so nothing needs restarting.
+
+## 10. Revision recovery runbook (REV-REC-1)
+
+This runbook describes existing capabilities only. UTU remains the authority. Nothing
+here adds an endpoint, a grant or an operator override. Governed revision is not enabled
+live until Stage 2 installs the `store.revise.approved` grant.
+
+### 10.1 Lifecycle and authority
+
+Every step needs an authenticated, live Genesis session of the owning human. Routes are
+under `/api/v2/agentverse/agents/{agent_id}/definition-revisions/`
+(`interfaces/api/v2/agent_definition_revisions.py`). Each call re-checks:
+- the policy's `revision_gateways` binding (tenant and subject to the Genesis executor);
+- the target: governed, created by the requester, writable, and a single holder.
+
+| Step | Route | What happens | Evidence |
+| --- | --- | --- | --- |
+| Baseline | `GET baseline` | Read-only baseline status and predecessor | — |
+| Draft | `POST drafts`, `PATCH drafts/{id}` | Revision draft. The predecessor is the chain head, or the verified baseline. Refused if the chain head does not match the projection (`projection.mismatch`) | — |
+| Review | `POST drafts/{id}/reviews` | `data.validation` under Genesis's attenuated validation scope, then composition. Binds the UTU policy revision and the gateway fingerprint; expires | Review record |
+| Approval | `POST approvals`, `POST approvals/{id}/withdrawal` | Human approval of an exact review (24 h). Withdrawal is possible until consumption | Seshat `approved` / `withdrawn` |
+| Application | `POST approvals/{id}/application`, `GET …/application` | Described below | Seshat `selected`, `applied` |
+
+**Application** (`agents/definition_revisions/application.py`):
+1. A claim, one per predecessor.
+2. Approval consumption. This is the point of no withdrawal.
+3. An OPS V2 operation with a 60 s lease, executing the Genesis-only
+   `store.revise.approved@1.0.0` under the `agent.definition.revise` scope. The provider
+   exists only when the installed policy grants it.
+4. Inside the provider: re-verification, then the immutable successor revision record
+   (plus the baseline record if needed), then one projection compare-and-set against the
+   exact predecessor.
+5. Receipts, then the operation succeeds and the record is completed.
+
+Record states are `claimed`, `selected`, `applied`, `completed` and `failed`. Every Store
+step is idempotent, and claim and application IDs are deterministic.
+
+### 10.2 Interruption states
+
+| # | Durable state | Recovery |
+| --- | --- | --- |
+| 1 | Claimed, approval not consumed | Repeat the request. An expired or withdrawn approval releases the claim |
+| 2 | Approval consumed, no operation | Repeat the request |
+| 3 | Operation running, nothing selected | Repeat after the 60 s lease (`in_progress` until then) |
+| 4 | Successor recorded, projection unchanged | Repeat; the identical successor is reused, then applied |
+| 5 | Projection applied, receipts missing | Repeat; the applied projection is recognized and receipts are written |
+| 6 | Record `selected` or `applied`, evidence partly written | Repeat; receipts are idempotent |
+| 7 | Operation succeeded, record not completed | Repeat; the record is completed from authoritative state |
+| **8** | **Held claim, terminal disagreement:** record `selected` with a selected digest, OPS operation terminally `FAILED`. Entered when the provider returns a non-retryable `predecessor_changed` after selection | **Unsupported, escalate.** Every retry returns "Operation and claim disagree; inspect before retrying". Other approvals for the predecessor get `predecessor_claimed`, and new drafts get `projection.mismatch` |
+| **9** | **Released claim, orphaned successor:** record `failed` with no selected digest, while an unapplied successor revision exists. Entered when a later attempt hits `identity_not_unique`, `identity_mismatch`, `approval_mismatch`, `review_unavailable`, `candidate_mismatch`, `predecessor_missing` or `successor_conflict` | **Unsupported, escalate.** New drafts get `projection.mismatch`, and Nataraja reports `revision.selected_unapplied` |
+
+States 8 and 9 need an out-of-band change to `coll_agents` (DEF-3), a duplicate holder
+(DEF-6) or corruption. Crashes and lost connections alone lead only to states 1-7
+(inferred from code). In both, the runtime keeps serving a consistent projection.
+
+### 10.3 Procedures
+
+**Supported now:**
+1. **Inspect:**
+   - Nataraja `inspect` (read-only): the `definition_baseline` codes
+     `application.incomplete`, `application.missing_evidence`,
+     `revision.selected_unapplied` and `projection.*`, and `incomplete_applications`;
+   - `GET approvals/{id}` and `GET approvals/{id}/application`;
+   - a read-only lookup of `operations_v2` by `operation_id = application_id`.
+2. **Freeze:**
+   - no policy or grant change while any application is unfinished (without the grant
+     no retry can run);
+   - avoid API restarts between steps (each costs one lease).
+3. **States 1-7:** the owner, with a live session, repeats the identical
+   `POST approvals/{id}/application`. On `in_progress`, wait out the lease and repeat.
+   Preconditions: the same approval, the grant and gateway still installed, and the
+   target still a single governed holder.
+4. **Before consumption:** withdraw the approval, or let it expire. A `claimed`-only
+   claim is released on the next request.
+5. **Verify:** Nataraja shows `verified` with history `applied`, the application is
+   `completed`, and Seshat holds both `selected` and `applied`.
+
+**States 8 and 9 (escalate only):**
+1. Stop.
+2. Preserve the evidence: the application record, revision records, OPS operation and
+   Seshat chain.
+3. Find the cause: an out-of-band writer (DEF-3), a duplicate (DEF-6) or corruption.
+4. Escalate for an architectural decision.
+
+**Prohibited:** undocumented database repair, claim deletion, selection reversal,
+projection edits, and creating, editing or deleting revision records or Seshat
+evidence. A database restore needs explicit approval, and would leave the append-only
+evidence inconsistent with the restored data.
+
+**Future capability (not implemented):** a governed "abandon or supersede selection"
+operation, recorded in Seshat, for states 8 and 9.

@@ -1,7 +1,8 @@
 # Nataraja: Development Environment Supervisor (DEV-0.1)
 
-**Status:** implemented, uncommitted, development-only (DEV-0.1 + DEV-0.2 closeout). Non-destructive: inspection,
-disposable verification and dry-run reconciliation. The destructive Great Reset is not
+**Status:** implemented and committed, development-only (DEV-0.1 + DEV-0.2 closeout; pushed
+through `236fce0`). Non-destructive: inspection, disposable verification and dry-run
+reconciliation. The destructive Great Reset is not
 implemented.
 **Audience:** engineers operating the local CAOS environment.
 
@@ -14,24 +15,23 @@ the existing System Citizen or service that must perform it and the authority it
 ```sh
 docker compose exec -T api python -m src.domains.agentverse.nataraja inspect [--json]
 docker compose exec -T api python -m src.domains.agentverse.nataraja reconcile --dry-run [--json]
-docker compose exec -T api python -m src.domains.agentverse.nataraja verify \
-  --redis-url redis://<disposable-redis>:6379/0
 ```
+
+`inspect` and `reconcile --dry-run` are read-only and supported in the API container.
+`verify` runs integration suites, which since TEST-SAFETY-0.1 run only inside the
+disposable harness (internal network and a harness-declared Redis identity). Run inside
+the API container, `verify`'s suites are refused before any connection. Use
+[`scripts/test-harness/run.sh`](../scripts/test-harness/README.md) for those suites.
 
 There is no `caos` executable and only `src/` and `config/` are mounted into the API
 container, so the package entry point is the supported command. Exit codes: 0
 passed/warning/deferred, 1 failed, 2 blocked or refused. `reconcile` without
 `--dry-run` is refused. Reports go to stdout; application logs go to stderr.
 
-A disposable Redis for `verify` can be started on the compose network, then removed:
-
-```sh
-docker run -d --rm --name caos-nataraja-redis --network agentverse_net redis:6-alpine
-docker rm -f -v caos-nataraja-redis
-```
-
-`verify` refuses any URL on the live Redis server, requires `redis://`, and uses Mongo
-only through the existing disposable `caos_test_*` database isolation.
+Historical (before TEST-SAFETY-0.1): `verify --redis-url redis://<disposable>:6379/0` ran
+the suites against a disposable Redis started on the compose network. That network can
+reach live services, so the fixtures now refuse it. `verify` itself still refuses any URL
+on the live Redis server and requires `redis://`.
 
 ## Architecture (`src/domains/agentverse/nataraja/`)
 
@@ -110,12 +110,12 @@ conversation is composed ([Conversation Tool](CONVERSATION_TOOL.md) §6):
   Grants, signals, scopes, providers and other Tool configurations are never reported.
 - **Not reported:** non-conversational Agents. Implicit compatibility does not degrade a
   healthy report.
-- **Expected live result (inspection not run in this task):** Enki, Thoth and Nabu
-  report `implicit: true` until governed revision attaches the Tool.
+- **Live result (observed 2026-11-03):** Enki, Thoth and Nabu report `source: legacy`
+  (`implicit: true`) until governed revision attaches the Tool.
 
 ## Policy pin (POLICY-PIN-0.1)
 
-Implemented, uncommitted. `inspect` reads the approved pin exactly as startup does (file
+Implemented and committed (`7db5350`, integrated). `inspect` reads the approved pin exactly as startup does (file
 only) and reports `revisions.approved_policy_version`. It predicts what the next start or
 reload accepts:
 

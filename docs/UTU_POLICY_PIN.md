@@ -1,7 +1,7 @@
 # UTU Policy Pin (POLICY-PIN-0.1)
 
-**Status:** implemented in source and disposable tests, uncommitted; awaiting
-architectural review (2026-11-03). Security finding:
+**Status:** implemented, committed in `7db5350`, pushed, integrated and startup-verified
+(2026-11-03; startup logs `UTU policy pin verified`, approved and installed `88cdfa80…`). Security finding:
 [STARTUP-POLICY-1](SECURITY_FINDINGS.md). **Audience:** operators of the managed local
 deployment and reviewers of UTU policy changes.
 
