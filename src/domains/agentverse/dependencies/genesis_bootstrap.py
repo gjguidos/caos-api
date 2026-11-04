@@ -533,8 +533,12 @@ def configure_genesis_transport(app: FastAPI, bindings: GenesisSecurityBindings)
                 # COORD-0.1/0.2: the creation interview coordinator, reached only by
                 # explicit activity events in a V2 turn. It holds no grant, signal or
                 # trusted line; each Agent's composition and UTU grants decide whether it
-                # applies (an answer also needs the Agent's Reasoning Tool and grant).
+                # applies (an answer also needs the Agent's Reasoning Tool and grant; a
+                # completion submits only a proposal, for the human's own decision).
                 if conversation_gate is not None:
+                    from src.domains.agentverse.agents.creation_drafts.references import (
+                        DraftContentReader,
+                    )
                     from src.domains.agentverse.services.creation_interview_coordinator_v2 import (
                         CreationInterviewCoordinator,
                     )
@@ -547,6 +551,11 @@ def configure_genesis_transport(app: FastAPI, bindings: GenesisSecurityBindings)
                             manuscripts=app.state.manuscripts,
                             gate=conversation_gate,
                             turns=av.conversation_repository_v2().owns,
+                            # COORD-0.3: draft content for the proposal diff only, read
+                            # under the proposal scope (read-only; never a write handle).
+                            drafts=DraftContentReader(
+                                av.agent_draft_repository(), av.utu_authority()
+                            ),
                         )
                     )
             # Enki's read-only catalog (CATALOG-0.1A), registered only when the reviewed

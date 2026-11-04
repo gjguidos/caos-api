@@ -80,11 +80,42 @@ class ActivityAnswerV2(BaseModel):
     expected_revision: StrictInt = Field(ge=1)
 
 
-ActivityPayload = ActivityStartV2 | ActivityCloseV2 | ActivityAnswerV2
+FieldKey = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]{0,63}$")]
+Digest = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
+
+
+class ActivityConfirmV2(BaseModel):
+    """COORD-0.3: one explicit human confirmation of one boolean Manuscript field at the
+    revision the human saw. Only ``true`` is expressible; ``presentation_digest`` binds a
+    confirmation to the server-offered catalog listing it acknowledges (when the stage
+    has one). Never produced by Reasoning."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    context_id: ResourceId
+    expected_revision: StrictInt = Field(ge=1)
+    field: FieldKey
+    value: Literal[True]
+    presentation_digest: Digest | None = Field(default=None, exclude_if=_absent)
+
+
+class ActivityCompleteV2(BaseModel):
+    """COORD-0.3: the human's explicit request to complete the interview at a revision
+    and submit its result as a proposal for the human's own later decision."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    context_id: ResourceId
+    expected_revision: StrictInt = Field(ge=1)
+
+
+ActivityPayload = (
+    ActivityStartV2 | ActivityCloseV2 | ActivityAnswerV2 | ActivityConfirmV2 | ActivityCompleteV2
+)
 PAYLOADS: dict[str, type[BaseModel]] = {
     "activity.start": ActivityStartV2,
     "activity.close": ActivityCloseV2,
     "activity.answer": ActivityAnswerV2,
+    "activity.confirm": ActivityConfirmV2,
+    "activity.complete": ActivityCompleteV2,
 }
 
 
@@ -93,7 +124,14 @@ class ClientEventV2(BaseModel):
 
     conversation_id: Identifier
     event_id: Identifier
-    type: Literal["chat.message", "activity.start", "activity.close", "activity.answer"]
+    type: Literal[
+        "chat.message",
+        "activity.start",
+        "activity.close",
+        "activity.answer",
+        "activity.confirm",
+        "activity.complete",
+    ]
     response_mode: Literal["context", "llm"] = "context"
     agent_ids: tuple[Identifier, ...] = Field(min_length=1, max_length=4)
     # Absent fields are never serialized: a ``chat.message`` dumps (and so digests in
@@ -107,6 +145,17 @@ class ClientEventV2(BaseModel):
         if len(set(value)) != len(value):
             raise ValueError("Duplicate targets")
         return value
+
+    @model_validator(mode="before")
+    @classmethod
+    def _payload_by_type(cls, data: Any) -> Any:
+        """The event type selects the payload model (shapes alone can be ambiguous, e.g.
+        ``activity.answer`` and ``activity.complete``)."""
+        if isinstance(data, dict) and isinstance(data.get("activity"), dict):
+            model = PAYLOADS.get(data.get("type"))  # type: ignore[arg-type]
+            if model is not None:
+                data = {**data, "activity": model.model_validate(data["activity"])}
+        return data
 
     @model_validator(mode="after")
     def _typed_payload(self) -> Self:

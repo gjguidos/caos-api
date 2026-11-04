@@ -180,7 +180,7 @@ async def test_answers_progress_one_stage_at_a_time_and_replay_safely(env):
     assert offered(e.model.calls[-1]) == ["purpose"]
     assert e.model.calls[-1]["instructions"] == INSTRUCTIONS
     result = applied["result"]
-    assert (result["contract"], result["schema_version"]) == ("caos.activity_turn", 2)
+    assert (result["contract"], result["schema_version"]) == ("caos.activity_turn", 3)
     assert (result["manuscript"]["revision"], result["manuscript"]["stage"]) == (2, "identity")
     assert [f["key"] for f in result["prompt"]["fields"]] == ["name"]
     assert result["next_action"] == "answer" and set(result["authorizes"].values()) == {False}

@@ -23,6 +23,8 @@ from src.domains.agentverse.agents.lifecycle.agent_principal_resolver import Ver
 from src.domains.agentverse.agents.lifecycle.khepri import Khepri
 from src.domains.agentverse.entities.conversation_v2 import (
     ActivityAnswerV2,
+    ActivityCompleteV2,
+    ActivityConfirmV2,
     ActivityStartV2,
     ClientEventV2,
 )
@@ -44,6 +46,8 @@ logger = logging.getLogger(__name__)
 # includes one bounded Reasoning call; other activity events are deterministic.
 ACTIVITY_SECONDS = 10
 ANSWER_SECONDS = 45
+# Completion: Manuscript completion, a proposal and two context transitions.
+COMPLETE_SECONDS = 20
 
 
 def response_for(event: ClientEventV2, kind: str, **payload: Any) -> dict[str, Any]:
@@ -177,10 +181,16 @@ class ClientEventDispatcherV2:
             return response_for(
                 event, "activity.state", result=outcome, definitions=[binding.wire()]
             )
-        if isinstance(request, ActivityAnswerV2):
+        if isinstance(request, ActivityAnswerV2 | ActivityConfirmV2 | ActivityCompleteV2):
+            # The context ID names the activity; another coordinator's context is not found.
+            operation = {
+                ActivityAnswerV2: "answer",
+                ActivityConfirmV2: "confirm",
+                ActivityCompleteV2: "complete",
+            }[type(request)]
             for coordinator in self._coordinators.values():
                 try:
-                    outcome, binding = await coordinator.answer(session, event, lease)
+                    outcome, binding = await getattr(coordinator, operation)(session, event, lease)
                 except ActivityNotFound:
                     continue
                 return response_for(
@@ -252,7 +262,8 @@ class ClientEventDispatcherV2:
                 # COORD-0.1/0.2: explicit, typed activity events. Only an answer calls a
                 # (governed) model and records transcript entries.
                 answer = event.type == "activity.answer"
-                async with asyncio.timeout(ANSWER_SECONDS if answer else ACTIVITY_SECONDS):
+                budget = {"activity.answer": ANSWER_SECONDS, "activity.complete": COMPLETE_SECONDS}
+                async with asyncio.timeout(budget.get(event.type, ACTIVITY_SECONDS)):
                     response = await self._activity(session, event, lease)
                     await self.authorize(session, event)
                 if answer:

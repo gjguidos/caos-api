@@ -10,18 +10,19 @@ This page is evidence-labelled guidance, not proof. A session must confirm it ag
 
 ## Current milestone
 
-**Current state (2026-11-03, verified; COORD-0.1 integrated, COORD-0.2 uncommitted):**
-- **Repository:** `feature/ops-v2` at `90dda47`, pushed. Committed and published:
+**Current state (2026-11-04, verified; COORD-0.2 integrated, COORD-0.3 uncommitted):**
+- **Repository:** `feature/ops-v2` at `e4423a2`, pushed. Committed and published:
   - `c1719b9`: integration of CONV-REC-0.1 through MIG-FIX-0.1, REV-1 to REV-5;
   - `dcf2d11`: docs reconciliation;
   - `7db5350`: STARTUP-POLICY-1;
   - `236fce0`: TEST-SAFETY-0.1;
   - `fea15b5`: DOC-SYNC-0.2;
-  - `90dda47`: COORD-0.1 (creation interview coordinator).
-  COORD-0.2 (answer interpretation) is implemented and tested in an isolated worktree,
-  not committed.
+  - `90dda47`: COORD-0.1 (creation interview coordinator);
+  - `e4423a2`: COORD-0.2 (governed answer interpretation).
+  COORD-0.3 (confirmation, completion and proposal submission) is implemented and tested
+  in an isolated worktree, not committed.
 - **Runtime (observed 2026-11-03):**
-  - the development API (`caos-api`) is running COORD-0.1 (restarted 22:20:46Z),
+  - the development API (`caos-api`) is running COORD-0.2 (restarted 2026-11-04 16:34:20Z),
     restart policy `no`; `docker-compose.yml` still says `restart: always`;
   - startup logged `UTU policy pin verified`;
   - Nataraja `inspect` reports `passed`; source, approved pin, installed and runtime
@@ -42,8 +43,8 @@ This page is evidence-labelled guidance, not proof. A session must confirm it ag
     policy `no` remains outstanding;
   - decided: Nataraja `verify`'s test-running mode needs the disposable harness.
 
-**COORD-0.1 / COORD-0.2 — Creation interview coordinator (ENKI-1.0-B)** (COORD-0.1
-committed in `90dda47`, pushed and integrated; COORD-0.2 uncommitted).
+**COORD-0.1 / 0.2 / 0.3 — Creation interview coordinator (ENKI-1.0-B)** (COORD-0.1 in
+`90dda47` and COORD-0.2 in `e4423a2`, pushed and integrated; COORD-0.3 uncommitted).
 `CreationInterviewCoordinator` (`services/creation_interview_coordinator_v2.py`) is a
 deterministic application service bound to `ClientEventDispatcherV2`. It owns no state,
 store, grant, signal or trusted line.
@@ -72,12 +73,46 @@ store, grant, signal or trusted line.
   A write can commit after a lease is lost within one lease period; Manuscript's
   expected-revision compare-and-set still applies at most one answer per revision, and
   the unjournaled outcome is reported `stale` on retry.
-- **Limits:** no confirmation interaction, proposal submission (`agent.draft.propose`),
-  Manuscript abandonment, draft prefill or Ptah frames yet (COORD-0.3).
-- **COORD-0.3 prerequisite (confirmations):** an explicit, typed human confirmation
-  bound to the context and expected revision. A capabilities confirmation must not imply
-  that the whole catalog was reviewed: catalog pages are bounded and an incomplete
-  projection (`catalog_incomplete`) is reported only in that turn's outcome.
+- **Confirmations (COORD-0.3):** `activity.confirm` sets one boolean field of the current
+  stage to `true` through Manuscript `answer`, at the expected revision; never through
+  Reasoning. Where the stage has catalog fields, every outcome carries a `presentation`
+  (the server-offered options, `key@version`, title, `descriptor_digest` and `complete`,
+  bound to context, session and revision by its digest, journaled with the turn) and a
+  confirmation must echo that digest. `capabilities_reviewed` acknowledges the current
+  selections and that the offered listing may be incomplete; it does not certify that
+  every entry was inspected or rendered, and authorizes nothing.
+- **Completion (COORD-0.3):** `activity.complete` runs, each step keyed by durable
+  identifiers (context, session, artifact digest): Manuscript `complete`; a proposal
+  through `agent.draft.propose` of exactly the artifact fields that differ from the
+  draft (no `remove`; other draft fields untouched), or `already_current`; the Activity
+  Context records it (`proposal` slot or the observed draft revision); then closes it
+  `completed`. A retry continues from the durable state and recovers its own proposal by
+  its deterministic ID, never rebasing it. A locked draft is a typed conflict. Submission
+  evidence is the durable proposal record; acceptance and rejection keep their Seshat
+  events. A proposal is not an approval; the human decides it through the draft routes.
+- **Draft content for the diff (COORD-0.3):** `DraftContentReader` is part of the governed
+  `agent.draft.propose` operation, not a new authority: it accepts only a session-origin
+  principal attenuated to the proposal scope (UTU attenuation fails without the grant),
+  re-verifies the permit, policy versions and grant, and takes tenant, human and source
+  Agent from the permit, applying the draft service's ownership rule (the same read
+  `propose` performs). It is held only by the coordinator: no route, signal, Tool or model
+  reaches it, and content never appears in outcomes or logs.
+- **Tool configuration (COORD-0.3):** the Manuscript collects which Tools, not their
+  configuration (`config: {}`). A selected Tool whose key exactly matches one existing
+  draft Tool keeps that configuration (an empty one never erases it); a new Tool keeps the
+  artifact's; selection order is kept. A selected key that is duplicated in the draft, or
+  equal only after canonicalization, is a `completion.tool_identity_ambiguous` conflict.
+  Unselected draft Tools are not in the selection: accepting the proposal's `tools` field
+  replaces the whole field and removes them, so the human's proposal view now shows each
+  field's base, proposed and current value with `added`/`removed`/`retained`/`reordered`
+  entries ([Agent Drafts](../AGENT_DRAFTS.md), comparison). Submission removes nothing.
+- **Completion states needing a human action:** a draft locked (approved) after the
+  Manuscript completed, or after a proposal was submitted but before the context recorded
+  it, leaves the context active with a `draft.*` conflict (recording requires an editing
+  draft); an ambiguous Tool identity likewise. The human reopens or edits the draft and
+  retries, or abandons the interview. Nothing is rebased, decided or closed meanwhile.
+- **Limits:** Manuscript abandonment, draft prefill, correction of earlier stages and Ptah
+  frames are not implemented; the live Enki still lacks its Tool attachments (Stage 2).
 
 **TEST-SAFETY-0.1 — Disposable integration-test infrastructure** (committed in `236fce0`,
 pushed, integrated and verified 2026-11-03). See

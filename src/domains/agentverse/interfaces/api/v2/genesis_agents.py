@@ -428,7 +428,7 @@ async def list_creation_draft_proposals(
             "contract": "caos.agent_draft_proposal_page",
             "schema_version": 1,
             "current_revision": draft.revision,
-            "items": [item.public(now, draft) for item in items],
+            "items": [item.public(now, draft, await proposals.base_of(item)) for item in items],
             "next_cursor": following,
         }
 
@@ -502,7 +502,7 @@ async def get_creation_draft_proposal(
                 str(proposal_id),
                 authorize_creator=_creator_policy(request, token),
             )
-            return proposal.public(proposals.now(), draft)
+            return proposal.public(proposals.now(), draft, await proposals.base_of(proposal))
     except EventPermissionError as exc:
         raise HTTPException(403, "Draft proposal denied") from exc
     except DraftError as exc:
@@ -530,7 +530,11 @@ async def decide_creation_draft_proposal(
                 payload,
                 authorize_creator=_creator_policy(request, token),
             )
-            return {"proposal": proposal.public(proposals.now(), draft), "draft": draft.public()}
+            base = await proposals.base_of(proposal)
+            return {
+                "proposal": proposal.public(proposals.now(), draft, base),
+                "draft": draft.public(),
+            }
     except EventPermissionError as exc:
         raise HTTPException(403, "Draft proposal denied") from exc
     except DraftError as exc:

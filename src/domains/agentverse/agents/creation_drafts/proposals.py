@@ -334,9 +334,16 @@ class AgentDraftProposal(BaseModel):
             )
         )
 
-    def public(self, now: datetime, current: AgentDraftRevision | None = None) -> dict[str, Any]:
+    def public(
+        self,
+        now: datetime,
+        current: AgentDraftRevision | None = None,
+        base: AgentDraftRevision | None = None,
+    ) -> dict[str, Any]:
         """Human projection: the proposed change and, against the current draft, which
-        fields still apply. No tenant, owner, storage identity or evidence."""
+        fields still apply; ``comparison`` shows each field's value at the proposal's base
+        revision, the proposed value and the current value. No tenant, owner, storage
+        identity or evidence."""
         fields = sorted(self.fields())
         conflicting = [] if current is None else self.conflicts(current, set(fields))
         return {
@@ -356,6 +363,7 @@ class AgentDraftProposal(BaseModel):
             "current_revision": None if current is None else current.revision,
             "conflicting_fields": conflicting,
             "applicable_fields": [f for f in fields if f not in conflicting],
+            "comparison": self.comparison(base, current, conflicting),
             "outcome": None
             if self.outcome is None
             else {
@@ -375,6 +383,96 @@ class AgentDraftProposal(BaseModel):
                 "activation": False,
             },
         }
+
+    def comparison(
+        self,
+        base: AgentDraftRevision | None,
+        current: AgentDraftRevision | None,
+        conflicting: list[str],
+    ) -> list[dict[str, Any]]:
+        """Per proposed field: ``base`` (its value at the proposal's own base revision,
+        verified against the fingerprint recorded at submission), ``proposed`` (what an
+        acceptance of the field sets it to: the whole field, so a collection is replaced
+        and unlisted entries are removed) and ``current`` (the draft now). A base value that
+        cannot be verified is ``unavailable``, never invented. Read-only and derived."""
+        verified = base is not None and (base.tenant_id, base.draft_id, base.revision) == (
+            self.tenant_id,
+            self.draft_id,
+            self.base_revision,
+        )
+        rows = []
+        for field in sorted(self.fields()):
+            if verified and fingerprint(base.content, field) == self.base_fingerprints[field]:  # type: ignore[union-attr, index]
+                before = _slot(base.content, field)  # type: ignore[union-attr]
+            else:
+                before = {"state": "unavailable"}
+            after = (
+                {"state": "absent"}
+                if field in self.remove
+                else {"state": "present", "value": self.changes[field]}
+            )
+            row: dict[str, Any] = {
+                "field": field,
+                "base": before,
+                "proposed": after,
+                "current": None if current is None else _slot(current.content, field),
+                "conflicting": field in conflicting,
+            }
+            if field in COLLECTION_FIELDS:
+                row["items"] = _items(field, before, after)
+            rows.append(row)
+        return rows
+
+
+# Collection-valued draft fields and the identity of their entries (``None``: the entry
+# itself; ``""``: no stable entry identity, compared as a whole field only).
+COLLECTION_FIELDS: dict[str, str | None] = {
+    "tools": "key",
+    "workflows": None,
+    "rule_pack_ids": None,
+    "whitelisted_groups": None,
+    "gui_components": "",
+}
+
+
+def _slot(content: dict[str, Any], field: str) -> dict[str, Any]:
+    return (
+        {"state": "present", "value": content[field]} if field in content else {"state": "absent"}
+    )
+
+
+def _items(field: str, before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
+    """Deterministic entry-level view of a collection replacement: which entries are
+    added, removed or retained (and, for Tools, whether a retained configuration
+    changes) and whether retained entries change order."""
+    identity = COLLECTION_FIELDS[field]
+    if identity == "":
+        return {"state": "field_only"}
+    if before["state"] == "unavailable":
+        return {"state": "unavailable"}
+    old = before.get("value") or []
+    new = after.get("value") or []
+
+    def ident(entry: Any) -> Any:
+        return entry.get(identity) if identity and isinstance(entry, dict) else entry
+
+    old_ids, new_ids = [ident(e) for e in old], [ident(e) for e in new]
+    if len(set(map(repr, old_ids))) != len(old_ids) or len(set(map(repr, new_ids))) != len(new_ids):
+        # Duplicate identities: entries cannot be paired; the field values still show it.
+        return {"state": "ambiguous"}
+    old_by, new_by = dict(zip(old_ids, old, strict=True)), dict(zip(new_ids, new, strict=True))
+    retained = [i for i in new_ids if i in old_by]
+    items: dict[str, Any] = {
+        "state": "available",
+        "added": [new_by[i] for i in new_ids if i not in old_by],
+        "removed": [old_by[i] for i in old_ids if i not in new_by],
+        "retained": [
+            {"entry": i, **({"changed": old_by[i] != new_by[i]} if identity else {})}
+            for i in retained
+        ],
+        "reordered": retained != [i for i in old_ids if i in new_by],
+    }
+    return items
 
 
 def _timestamp(value: datetime) -> str:

@@ -266,8 +266,22 @@ changes nothing); the proposal record keeps the proposer's UTU provenance.
 
 | Method and path | Result |
 | --- | --- |
-| `GET /creation-drafts/{draft_id}/proposals/{proposal_id}` | Proposal with `state`, `current_revision`, `conflicting_fields`, `applicable_fields`, `outcome` |
+| `GET /creation-drafts/{draft_id}/proposals/{proposal_id}` | Proposal with `state`, `current_revision`, `conflicting_fields`, `applicable_fields`, `comparison`, `outcome` |
 | `POST /creation-drafts/{draft_id}/proposals/{proposal_id}/decision` | `{proposal, draft}` after the decision |
+
+**Comparison (COORD-0.3, read-only, additive).** Every proposal projection on these routes
+and in the proposal listing carries `comparison`: one row per proposed field with
+`base` (the value at the proposal's own base revision, `present` with `value`, `absent`,
+or `unavailable` when that revision cannot be read or no longer matches the fingerprint
+recorded at submission; never invented), `proposed` (what accepting the field sets it
+to), `current` (the draft now) and `conflicting`. The base is read from the persisted base
+revision, so it is stable however far the draft advances. Accepting a field **replaces the
+whole field**: for a collection, entries not listed in `proposed` are removed. Collection
+rows add `items`: `added`, `removed`, `retained` (Tools: `changed` when a retained Tool's
+configuration differs) and `reordered`; `ambiguous` when duplicate identities prevent
+pairing, `field_only` for `gui_components`. The comparison is derived (no new store),
+visible only to the draft owner through the existing owner checks, and never logged or
+sent to an Agent. `rationale` remains display-only and is never the record of changes.
 
 Errors: `404 proposal.not_found` (another owner's, tenant's, source's or draft's proposal
 is indistinguishable), `409 proposal.field_conflict` (with field lists and

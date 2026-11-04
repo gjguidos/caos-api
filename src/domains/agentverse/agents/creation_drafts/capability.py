@@ -142,7 +142,8 @@ async def submit_proposal(
     principal: AuthorizedAgentPrincipal,
     submission: ProposalSubmission,
 ) -> dict[str, Any]:
-    """Trusted in-process caller for an Agent runtime (Enki's future turn plan).
+    """Trusted in-process caller on an Agent's verified session principal (today the
+    creation interview coordinator, COORD-0.3; no runtime is required).
 
     Attenuates the Agent's verified principal to the proposal scope before binding a
     client, so the call carries exactly this one capability. Never an HTTP factory.

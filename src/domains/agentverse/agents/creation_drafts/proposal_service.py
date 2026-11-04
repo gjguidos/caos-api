@@ -26,6 +26,7 @@ from src.domains.agentverse.agents.creation_drafts.models import (
     MAX_PAGE,
     AgentDraftContent,
     AgentDraftRevision,
+    DraftError,
     DraftInvalidRequest,
     DraftLocked,
     DraftNotFound,
@@ -245,6 +246,17 @@ class AgentDraftProposalService:
                 except ProposalUnavailable:
                     pass  # Still committed; the next read or retry records the evidence.
         return proposal, draft
+
+    async def base_of(self, proposal: AgentDraftProposal) -> AgentDraftRevision | None:
+        """The proposal's own base revision, for the owner's comparison view only (callers
+        have already authorized the owner through ``get``, ``list_proposals`` or
+        ``decide``). An unreadable revision is ``None``: the view reports it unavailable."""
+        try:
+            return await self._revisions.revision(
+                proposal.tenant_id, proposal.draft_id, proposal.base_revision
+            )
+        except DraftError:
+            return None
 
     async def decide(
         self,

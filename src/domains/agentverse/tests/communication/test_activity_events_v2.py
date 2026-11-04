@@ -19,6 +19,7 @@ from src.domains.agentverse.reasoning.tasks.manuscript_answer_extraction import 
     AnswerExtractionInput,
 )
 from src.domains.agentverse.services.creation_interview_coordinator_v2 import (
+    _changes,
     _filter,
     _guidance,
     _summary,
@@ -31,6 +32,8 @@ BASE = {"conversation_id": "c-1", "event_id": "e-1", "agent_ids": ["enki"]}
 START = {"key": "agent.creation_interview@1.0.0", "references": {"draft": "d-1"}}
 CLOSE = {"context_id": "ctx-1", "reason": "abandoned"}
 ANSWER = {"context_id": "ctx-1", "expected_revision": 3}
+CONFIRM = {"context_id": "ctx-1", "expected_revision": 4, "field": "review_ready", "value": True}
+COMPLETE = {"context_id": "ctx-1", "expected_revision": 7}
 M = AGENT_CREATION_INTERVIEW
 
 
@@ -115,6 +118,23 @@ def test_activity_events_are_typed_and_digest_their_payload():
         {"type": "activity.answer", "message": "hi", "activity": ANSWER, "response_mode": "llm"},
         {"type": "activity.answer", "message": "hi", "activity": ANSWER, "agent_ids": ["a", "b"]},
         {"type": "activity.start", "message": "hi", "activity": ANSWER},
+        # activity.confirm: exactly one explicit ``true``; never a message.
+        {"type": "activity.confirm", "activity": {**CONFIRM, "value": False}},
+        {"type": "activity.confirm", "activity": {**CONFIRM, "value": "true"}},
+        {
+            "type": "activity.confirm",
+            "activity": {k: v for k, v in CONFIRM.items() if k != "value"},
+        },
+        {"type": "activity.confirm", "activity": {**CONFIRM, "field": "Review Ready"}},
+        {"type": "activity.confirm", "activity": {**CONFIRM, "presentation_digest": "abc"}},
+        {"type": "activity.confirm", "activity": {**CONFIRM, "answers": {"x": True}}},
+        {"type": "activity.confirm", "message": "yes", "activity": CONFIRM},
+        # activity.complete: a context and the revision only; never shaped as an answer.
+        {"type": "activity.complete", "message": "done", "activity": COMPLETE},
+        {"type": "activity.complete", "activity": {**COMPLETE, "proposal": {"draft_id": "d"}}},
+        {"type": "activity.complete", "activity": CONFIRM},
+        {"type": "activity.answer", "activity": COMPLETE},
+        {"type": "activity.close", "activity": {"context_id": "ctx-1", "reason": "completed"}},
     ],
 )
 def test_malformed_or_unsupported_events_are_rejected(event):
@@ -350,3 +370,94 @@ def test_value_bounds_never_truncate_long_instructions():
     assert not _within(M.field("tools"), ["a", "a"], {"tools": [{"key": "a", "title": "A"}]})
     assert _within(M.field("visibility"), "private", {})
     assert not _within(M.field("visibility"), "secret", {})
+
+
+def test_confirm_and_complete_events_are_typed_by_their_event_type():
+    confirm = ClientEventV2.model_validate(
+        {**BASE, "type": "activity.confirm", "activity": CONFIRM}
+    )
+    assert journal(confirm) == (
+        '{"conversation_id":"c-1","event_id":"e-1","type":"activity.confirm",'
+        '"agent_ids":["enki"],"activity":{"context_id":"ctx-1","expected_revision":4,'
+        '"field":"review_ready","value":true}}'
+    )
+    digest = "a" * 64
+    bound = ClientEventV2.model_validate_json(
+        canonical_json(
+            {
+                **BASE,
+                "type": "activity.confirm",
+                "activity": {**CONFIRM, "presentation_digest": digest},
+            }
+        )
+    )
+    assert bound.activity.presentation_digest == digest
+    complete = ClientEventV2.model_validate(
+        {**BASE, "type": "activity.complete", "activity": COMPLETE}
+    )
+    # Same shape as an answer's payload: the event type alone selects the model.
+    assert type(complete.activity).__name__ == "ActivityCompleteV2"
+    assert "message" not in journal(complete)
+
+
+def creation(**fields):
+    return {
+        "contract": "caos.agent_creation_draft",
+        "schema_version": 1,
+        "resource_type": "agent",
+        "creation": fields,
+    }
+
+
+def test_proposal_changes_are_exactly_the_differing_interview_fields():
+    artifact = creation(
+        name="Contract Summarizer",
+        type="chat",
+        tools=[{"key": "rag", "config": {}}, {"key": "date_tool", "config": {}}],
+        prompt="Summarize each contract.",
+        visibility="private",
+    )
+    draft = {
+        "name": "Contract Summarizer",
+        "whitelisted_groups": ["legal-team"],  # Outside the interview: never touched.
+        "tools": [{"key": "rag", "config": {"top_k": 3}}],
+        "gui_components": [],
+    }
+    assert _changes(artifact, draft) == {
+        "type": "chat",
+        # The existing Tool keeps its configuration; the new one keeps the artifact's.
+        "tools": [{"key": "rag", "config": {"top_k": 3}}, {"key": "date_tool", "config": {}}],
+        "prompt": "Summarize each contract.",
+        "visibility": "private",
+    }
+
+
+def test_an_empty_manuscript_configuration_never_erases_an_existing_one():
+    artifact = creation(name="A", tools=[{"key": "rag", "config": {}}])
+    draft = {"name": "A", "tools": [{"key": "rag", "config": {"top_k": 3}}]}
+    assert _changes(artifact, draft) == {}  # Already current after preservation.
+    # Selection order is the artifact's; unselected Tools are not part of the selection.
+    ordered = creation(tools=[{"key": "b", "config": {}}, {"key": "a", "config": {}}])
+    existing = {"tools": [{"key": "a", "config": {"x": 1}}, {"key": "c", "config": {"y": 2}}]}
+    assert _changes(ordered, existing)["tools"] == [
+        {"key": "b", "config": {}},
+        {"key": "a", "config": {"x": 1}},
+    ]
+
+
+@pytest.mark.parametrize(
+    "existing",
+    [
+        # Duplicated identity: which configuration to keep is undecidable.
+        [{"key": "rag", "config": {"top_k": 1}}, {"key": "rag", "config": {"top_k": 2}}],
+        # Equal only after canonicalization: not the same reference.
+        [{"key": "RAG", "config": {"top_k": 1}}],
+    ],
+)
+def test_ambiguous_tool_identities_are_refused(existing):
+    from src.domains.agentverse.services.creation_interview_coordinator_v2 import (
+        ToolIdentityAmbiguous,
+    )
+
+    with pytest.raises(ToolIdentityAmbiguous):
+        _changes(creation(tools=[{"key": "rag", "config": {}}]), {"tools": existing})

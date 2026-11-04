@@ -30,6 +30,15 @@ An answer is bound to the Manuscript revision the human answered: one request ke
 ``(context, session, revision)`` and an expected-revision compare-and-set, so it is applied
 at most once and never re-interpreted against a later stage (a moved revision is
 reported ``stale``, without interpretation or mutation).
+
+COORD-0.3 adds ``activity.confirm`` (one explicit boolean confirmation of the current stage,
+bound to its revision and, where the stage lists catalog options, to the digest of the
+server-offered listing) and ``activity.complete``: Manuscript ``complete``, a proposal of
+exactly the changed fields through ``agent.draft.propose``, recording it in the Activity
+Context, then closing it ``completed``. Each step is keyed by durable identifiers (context,
+session, artifact digest) so a retry converges; nothing accepts, reviews, approves,
+creates or activates. Lease, UTU authority, definition and context are rechecked before
+every mutation; the lease check and a write in another store are not atomic.
 """
 
 from __future__ import annotations
@@ -47,6 +56,7 @@ from src.domains.agentverse.activities.models import (
     ActivityClosed,
     ActivityContext,
     ActivityNotFound,
+    ActivityReferenceUnavailable,
     OwnerRef,
 )
 from src.domains.agentverse.activities.owners import CONVERSATION_OWNER, TURN_SIGNAL
@@ -55,12 +65,22 @@ from src.domains.agentverse.agents.conversational_composition_v2 import (
     ConversationGate,
     DefinitionBinding,
 )
+from src.domains.agentverse.agents.creation_drafts.capability import (
+    PROPOSE_SCOPE,
+    ProposalSubmission,
+    submit_proposal,
+)
+from src.domains.agentverse.agents.creation_drafts.models import AgentDraftContent, DraftError
+from src.domains.agentverse.agents.creation_drafts.proposals import PROPOSE_SIGNAL, proposal_id
+from src.domains.agentverse.agents.creation_drafts.references import DraftContentReader
 from src.domains.agentverse.agents.lifecycle.agent_principal_resolver import VerifiedAgentSession
 from src.domains.agentverse.catalog.capability import SIGNAL as CATALOG_SIGNAL
 from src.domains.agentverse.catalog.capability import project_catalog
 from src.domains.agentverse.entities.conversation_v2 import (
     ActivityAnswerV2,
     ActivityCloseV2,
+    ActivityCompleteV2,
+    ActivityConfirmV2,
     ActivityStartV2,
     ClientEventV2,
 )
@@ -88,6 +108,7 @@ from src.domains.agentverse.tools.manuscript_tool.spec import ManuscriptToolConf
 from src.domains.agentverse.tools.reasoning_tool import ReasoningTool
 from src.domains.agentverse.tools.reasoning_tool.spec import ReasoningToolConfig, reasoning_tool
 from src.domains.agentverse.tools.spec import AgentToolRef
+from src.domains.agentverse.utils.canonicalize import canonicalize
 
 __all__ = ["CoordinatorError", "CreationInterviewCoordinator", "prompt"]
 
@@ -108,6 +129,13 @@ ANSWER_GRANTS: Final = frozenset(
         REASONING_SIGNAL,
     }
 )
+CONFIRM_GRANTS: Final = frozenset(
+    {TURN_SIGNAL, MANUSCRIPT_SIGNALS["status"], MANUSCRIPT_SIGNALS["answer"]}
+)
+COMPLETE_GRANTS: Final = frozenset(
+    {TURN_SIGNAL, MANUSCRIPT_SIGNALS["status"], MANUSCRIPT_SIGNALS["complete"], PROPOSE_SIGNAL}
+)
+PRESENTATION_CONTRACT: Final = "caos.activity_presentation"
 REASONING_TOOL: Final = "reasoning"
 ANSWER_TASK: Final = MANUSCRIPT_ANSWER_EXTRACTION.key()
 # One model call's share of the answer turn (the dispatcher bounds the whole turn).
@@ -144,6 +172,7 @@ class CreationInterviewCoordinator:
         manuscripts: ManuscriptService,
         gate: ConversationGate,
         turns: Callable[[TurnLease], Awaitable[bool]],
+        drafts: DraftContentReader,
         tools: ToolRegistry = tool_registry_instance,
     ) -> None:
         self._authority = authority
@@ -153,6 +182,8 @@ class CreationInterviewCoordinator:
         self._gate = gate
         # Read-only CONV-REC-0.1 ownership check (``ConversationRepositoryV2.owns``).
         self._turns = turns
+        # Read-only content of the actor's own draft (proposal diff only).
+        self._drafts = drafts
         self._tools = tools
 
     # --- Turn entry points (called under the turn's live lease) ------------------------------
@@ -271,7 +302,9 @@ class CreationInterviewCoordinator:
         if view["revision"] != expected:
             # Answered against another revision (e.g. a retry after an interrupted commit):
             # never re-interpreted against the session's current stage.
-            return self._result(context, view, manuscript, _interpretation("stale")), binding
+            return await self._turn(
+                principal, context, view, manuscript, interpretation=_interpretation("stale")
+            ), binding
 
         stage = manuscript.stage(view["stage"])
         specs = [manuscript.field(key) for key in stage.collects]
@@ -284,12 +317,16 @@ class CreationInterviewCoordinator:
             interpretation = _interpretation(
                 status, confirmation_required=confirmations, unsupported=unsupported
             )
-            return self._result(context, view, manuscript, interpretation), binding
+            return await self._turn(
+                principal, context, view, manuscript, interpretation=interpretation
+            ), binding
         if len(event.message) > MAX_MESSAGE:
             interpretation = _interpretation(
                 "input_unsupported", issues=["answer.message_too_long"]
             )
-            return self._result(context, view, manuscript, interpretation), binding
+            return await self._turn(
+                principal, context, view, manuscript, interpretation=interpretation
+            ), binding
 
         catalogued = [spec for spec in offered if spec.catalog is not None]
         if catalogued and CATALOG_SIGNAL not in self._authority.grants_for(principal).invoke:
@@ -298,7 +335,9 @@ class CreationInterviewCoordinator:
         bounded = _task_input(event.message, manuscript, stage, offered, view, options)
         if bounded is None:
             interpretation = _interpretation("input_unsupported", issues=["answer.input_too_large"])
-            return self._result(context, view, manuscript, interpretation), binding
+            return await self._turn(
+                principal, context, view, manuscript, interpretation=interpretation
+            ), binding
         task_input, trimmed = bounded
         incomplete |= trimmed
 
@@ -328,7 +367,9 @@ class CreationInterviewCoordinator:
         interpretation["confirmation_required"] = confirmations
         interpretation["unsupported"] = unsupported
         if not accepted:
-            return self._result(context, view, manuscript, interpretation), binding
+            return await self._turn(
+                principal, context, view, manuscript, interpretation=interpretation
+            ), binding
 
         # Before the only mutation: the turn still owns the conversation, the human and
         # Agent still hold authority, the context is still active and the definition is
@@ -362,7 +403,9 @@ class CreationInterviewCoordinator:
                 raise
             # Another request owns this revision: report the current state, unchanged.
             view = await self._view(principal, context, manuscript)
-            return self._result(context, view, manuscript, _interpretation("stale")), binding
+            return await self._turn(
+                principal, context, view, manuscript, interpretation=_interpretation("stale")
+            ), binding
         outcome = applied.get("outcome")
         if outcome is None:
             # Manuscript replayed this exact request: its stored state is the result.
@@ -372,7 +415,486 @@ class CreationInterviewCoordinator:
             interpretation["applied"] = sorted(outcome["accepted"])
             interpretation["status"] = "applied" if outcome["accepted"] else "clarification"
         view = self._pinned(applied["session"], manuscript)
-        return self._result(context, view, manuscript, interpretation), binding
+        return await self._turn(
+            principal, context, view, manuscript, interpretation=interpretation
+        ), binding
+
+    async def confirm(
+        self, session: VerifiedAgentSession, event: ClientEventV2, lease: TurnLease
+    ) -> tuple[dict[str, Any], DefinitionBinding]:
+        """Apply one explicit human confirmation (a boolean ``true``) of the current stage.
+
+        Deterministic: no Reasoning. The field must be a boolean of the current stage, the
+        revision current and, where the stage lists catalog options, the digest of the
+        server's listing for exactly this context and revision must match."""
+        request = event.activity
+        assert isinstance(request, ActivityConfirmV2)
+        agent_id = event.agent_ids[0]
+        principal, actor = await self._actor(session, agent_id, CONFIRM_GRANTS)
+        definition, binding = await self._gate.admit_activity(
+            session.tenant_id, agent_id, self.activity
+        )
+        manuscript = self._manuscript(definition)
+        context = await self._owned(actor, event, request.context_id)
+        view = await self._view(principal, context, manuscript)
+        if view["status"] != "active":
+            raise CoordinatorError("activity.session_inactive")
+        confirmation: dict[str, Any] = {
+            "field": request.field,
+            "status": "stale",
+            "expected_revision": request.expected_revision,
+            "presentation_digest": None,
+            "catalog_complete": {},
+            "rejected": {},
+        }
+        if view["revision"] != request.expected_revision:
+            return await self._turn(
+                principal, context, view, manuscript, confirmation=confirmation
+            ), binding
+        stage = manuscript.stage(view["stage"])
+        if request.field not in stage.collects or manuscript.field(request.field).type != "boolean":
+            # Unknown, later-stage, completed-stage or non-boolean fields alike.
+            raise CoordinatorError("confirmation.field_not_current")
+        presentation = await self._presentation(principal, context, view, manuscript)
+        digest = None if presentation is None else presentation["digest"]
+        confirmation.update(
+            presentation_digest=digest,
+            catalog_complete=_completeness(presentation),
+        )
+        if request.presentation_digest != digest:
+            # Not the listing this context offered at this revision (or none was offered).
+            confirmation["status"] = (
+                "presentation_stale" if presentation is not None else "presentation_unexpected"
+            )
+            return (
+                self._result(
+                    context, view, manuscript, None, presentation, confirmation=confirmation
+                ),
+                binding,
+            )
+        principal, _, context = await self._recheck(session, event, lease, binding, CONFIRM_GRANTS)
+        try:
+            applied = await self._invoke(
+                principal,
+                "answer",
+                {
+                    "contract": "caos.manuscript_session.answer",
+                    "schema_version": 1,
+                    "session_id": view["session_id"],
+                    "expected_revision": request.expected_revision,
+                    "answers": {request.field: True},
+                    "request_key": _key(
+                        "coord-cnf",
+                        context_id=context.context_id,
+                        session_id=view["session_id"],
+                        revision=request.expected_revision,
+                        field=request.field,
+                    ),
+                },
+            )
+        except CoordinatorError as exc:
+            if exc.code not in ("session.revision_conflict", "idempotency.conflict"):
+                raise
+            view = await self._view(principal, context, manuscript)
+            return await self._turn(
+                principal, context, view, manuscript, confirmation=confirmation
+            ), binding
+        outcome = applied.get("outcome")
+        if outcome is None or request.field in outcome["accepted"]:
+            confirmation["status"] = "confirmed"
+        else:
+            confirmation.update(status="rejected", rejected=dict(outcome["rejected"]))
+        view = self._pinned(applied["session"], manuscript)
+        return await self._turn(
+            principal, context, view, manuscript, confirmation=confirmation
+        ), binding
+
+    async def complete(
+        self, session: VerifiedAgentSession, event: ClientEventV2, lease: TurnLease
+    ) -> tuple[dict[str, Any], DefinitionBinding]:
+        """Complete the interview and submit its artifact as a proposal for the human.
+
+        Durable steps, each idempotent under keys derived from the context, the session
+        and the artifact digest: (1) Manuscript ``complete``; (2) a proposal of exactly
+        the fields that differ from the draft (or none: ``already_current``); (3) the
+        Activity Context records the result; (4) the context is closed ``completed``.
+        A retry reads which steps are durable and continues from there."""
+        request = event.activity
+        assert isinstance(request, ActivityCompleteV2)
+        agent_id = event.agent_ids[0]
+        principal, actor = await self._actor(session, agent_id, COMPLETE_GRANTS)
+        definition, binding = await self._gate.admit_activity(
+            session.tenant_id, agent_id, self.activity
+        )
+        manuscript = self._manuscript(definition)
+        context = await self._contexts.get(actor, request.context_id)
+        owner = OwnerRef(kind=CONVERSATION_OWNER, id=event.conversation_id)
+        if context.owner != owner or context.activity.key != self.activity:
+            raise ActivityNotFound("Activity context not found")
+        if context.status != "active" and context.closed_reason != "completed":
+            raise ActivityClosed("The activity context is closed")
+        view = await self._view(principal, context, manuscript)
+        completion: dict[str, Any] = {
+            "status": "stale",
+            "expected_revision": request.expected_revision,
+            "artifact_digest": None,
+            "proposal": None,
+            "conflict": None,
+        }
+        if context.status == "closed":
+            # Already completed (a retry after the journal lost the outcome): report it.
+            completion.update(await self._proposal_state(actor, context, _recorded(context, view)))
+            return self._result(
+                context, view, manuscript, None, None, completion=completion
+            ), binding
+        if view["status"] == "active":
+            if view["revision"] != request.expected_revision:
+                return await self._turn(
+                    principal, context, view, manuscript, completion=completion
+                ), binding
+            if not view["ready_to_complete"]:
+                completion["status"] = "not_ready"
+                return await self._turn(
+                    principal, context, view, manuscript, completion=completion
+                ), binding
+            principal, actor, context = await self._recheck(
+                session, event, lease, binding, COMPLETE_GRANTS
+            )
+            try:
+                completed = await self._invoke(
+                    principal,
+                    "complete",
+                    {
+                        "contract": "caos.manuscript_session.complete",
+                        "schema_version": 1,
+                        "session_id": view["session_id"],
+                        "expected_revision": request.expected_revision,
+                        "request_key": _key(
+                            "coord-cmp",
+                            context_id=context.context_id,
+                            session_id=view["session_id"],
+                        ),
+                    },
+                )
+            except CoordinatorError as exc:
+                if exc.code not in ("session.revision_conflict", "idempotency.conflict"):
+                    raise
+                view = await self._view(principal, context, manuscript)
+                return await self._turn(
+                    principal, context, view, manuscript, completion=completion
+                ), binding
+            view = self._pinned(completed["session"], manuscript)
+        elif view["status"] != "completed":
+            raise CoordinatorError("activity.session_inactive")
+
+        # (1) is durable: the Manuscript's own artifact is the only source from here on.
+        artifact = view["artifact"]
+        if not isinstance(artifact, dict) or artifact.get("contract") != DRAFT_ARTIFACT:
+            raise CoordinatorError("completion.artifact_invalid")
+        artifact_digest = sha256_hex(artifact)
+        draft_id = context.references["draft"].id
+        if view.get("draft_id") != draft_id:
+            raise CoordinatorError("completion.draft_mismatch")
+        completion["artifact_digest"] = artifact_digest
+        key = _key(
+            "coord-prop",
+            context_id=context.context_id,
+            session_id=view["session_id"],
+            artifact=artifact_digest,
+        )
+        pid = proposal_id(session.tenant_id, session.user_id, agent_id, draft_id, key)
+        recorded = _recorded(context, view)
+        if recorded["status"] == "already_current" and not await self._still_current(
+            principal, context
+        ):
+            recorded = {"status": None, "proposal": None}  # The draft moved: decide again.
+        if recorded["status"] is None:
+            # (2)+(3): record an existing proposal of ours, else decide and record now.
+            result = await self._record(
+                session, event, lease, binding, context, view, artifact, key, pid
+            )
+            if result["conflict"] is not None:
+                completion.update(status="conflict", conflict=result["conflict"])
+                context = await self._contexts.get(actor, request.context_id)
+                return self._result(
+                    context, view, manuscript, None, None, completion=completion
+                ), binding
+            context = result["context"]
+            recorded = _recorded(context, view)
+            if recorded["status"] == "already_current" and not await self._still_current(
+                principal, context
+            ):
+                # Never closed over a concurrent draft change; a retry decides again.
+                completion.update(
+                    status="conflict",
+                    conflict={"code": "completion.draft_changed", "retryable": True},
+                )
+                return self._result(
+                    context, view, manuscript, None, None, completion=completion
+                ), binding
+
+        # (4) Close: the result is durably recorded in the context.
+        principal, actor, context = await self._recheck(
+            session, event, lease, binding, COMPLETE_GRANTS
+        )
+        context = await self._contexts.close(
+            actor,
+            lease,
+            context_id=context.context_id,
+            expected_revision=context.revision,
+            operation_id=_key(
+                "coord-done", context_id=context.context_id, session_id=view["session_id"]
+            ),
+            reason="completed",
+        )
+        completion.update(await self._proposal_state(actor, context, recorded))
+        return self._result(context, view, manuscript, None, None, completion=completion), binding
+
+    async def _still_current(
+        self, principal: AuthorizedAgentPrincipal, context: ActivityContext
+    ) -> bool:
+        """The draft is still at the revision the context recorded as already current."""
+        draft = context.references["draft"]
+        current = await self._draft(principal, draft.id)
+        return current.status == "editing" and current.revision == draft.observed_revision
+
+    async def _proposal_state(
+        self, actor: ActivityActor, context: ActivityContext, recorded: dict[str, Any]
+    ) -> dict[str, Any]:
+        """The recorded result with the proposal's current state, read through the Activity
+        Context's own (owner-checked) resolver."""
+        proposal = recorded.get("proposal")
+        if proposal is None:
+            return recorded
+        refreshed = await self._contexts.refresh(actor, context.context_id)
+        found = refreshed.resolved.get("proposal")
+        return {
+            **recorded,
+            "proposal": {**proposal, "status": None if found is None else found.status},
+        }
+
+    async def _record(
+        self,
+        session: VerifiedAgentSession,
+        event: ClientEventV2,
+        lease: TurnLease,
+        binding: DefinitionBinding,
+        context: ActivityContext,
+        view: Mapping[str, Any],
+        artifact: Mapping[str, Any],
+        key: str,
+        pid: str,
+    ) -> dict[str, Any]:
+        """Steps (2) and (3). Our proposal identity is deterministic: if a previous attempt
+        submitted it, the Activity Context (whose resolver checks the proposal's owner,
+        source and draft) records that one, never a second or rebased proposal."""
+        draft_id = context.references["draft"].id
+        principal, actor, context = await self._recheck(
+            session, event, lease, binding, COMPLETE_GRANTS
+        )
+        adopted = await self._advance(actor, lease, context, view, proposal=pid)
+        if adopted["context"] is not None:
+            return adopted
+        current = await self._draft(principal, draft_id)
+        if current.status != "editing":
+            # Governed conflict: the human locked the draft; nothing is rebased or closed.
+            return _conflict(f"draft.{current.status}")
+        if adopted["conflict"] is not None:
+            return adopted
+        try:
+            changes = _changes(artifact, current.content)
+        except ToolIdentityAmbiguous:
+            # Which existing configuration a selected Tool keeps is not decidable.
+            return _conflict("completion.tool_identity_ambiguous")
+        if not changes:
+            # Nothing to propose: record the draft revision this was decided against.
+            principal, actor, context = await self._recheck(
+                session, event, lease, binding, COMPLETE_GRANTS
+            )
+            return await self._advance(
+                actor, lease, context, view, proposal=None, draft_revision=current.revision
+            )
+        principal, actor, context = await self._recheck(
+            session, event, lease, binding, COMPLETE_GRANTS
+        )
+        receipt = await submit_proposal(
+            self._authority,
+            self._exchange,
+            principal,
+            ProposalSubmission.model_validate(
+                {
+                    "contract": "caos.agent_draft_proposal_submission",
+                    "schema_version": 1,
+                    "idempotency_key": key,
+                    "proposal": {
+                        "contract": "caos.agent_draft_proposal_request",
+                        "schema_version": 1,
+                        "draft_id": draft_id,
+                        "base_revision": current.revision,
+                        "changes": changes,
+                        "remove": [],
+                    },
+                }
+            ),
+        )
+        if not isinstance(receipt, dict) or not receipt.get("ok"):
+            code = receipt.get("code") if isinstance(receipt, dict) else None
+            if code == "idempotency.conflict":
+                # Submitted concurrently with another base: still ours; record that one.
+                pass
+            elif isinstance(code, str) and (code.startswith(("draft.", "proposal."))):
+                return _conflict(code, retryable=bool(receipt.get("retryable")))
+            else:
+                raise CoordinatorError("completion.proposal_unavailable", retryable=True)
+        elif receipt.get("proposal_id") != pid:
+            raise CoordinatorError("completion.proposal_mismatch")
+        principal, actor, context = await self._recheck(
+            session, event, lease, binding, COMPLETE_GRANTS
+        )
+        recorded = await self._advance(actor, lease, context, view, proposal=pid)
+        if recorded["context"] is None and recorded["conflict"] is None:
+            raise CoordinatorError("completion.proposal_unavailable", retryable=True)
+        return recorded
+
+    async def _advance(
+        self,
+        actor: ActivityActor,
+        lease: TurnLease,
+        context: ActivityContext,
+        view: Mapping[str, Any],
+        *,
+        proposal: str | None,
+        draft_revision: int | None = None,
+    ) -> dict[str, Any]:
+        """Record the proposal (or the draft revision found already current) in the
+        context. A missing proposal is ``{"context": None}``; a draft that can no longer
+        take one (locked or unavailable) is a typed conflict. Nothing else is written."""
+        operation = _key(
+            "coord-adv",
+            context_id=context.context_id,
+            session_id=view["session_id"],
+            proposal=proposal,
+            draft_revision=draft_revision,
+        )
+        try:
+            advanced = await self._contexts.advance(
+                actor,
+                lease,
+                context_id=context.context_id,
+                expected_revision=context.revision,
+                operation_id=operation,
+                references={} if proposal is None else {"proposal": proposal},
+            )
+        except ActivityReferenceUnavailable as exc:
+            if exc.slot == "proposal" and proposal is not None:
+                return {"context": None, "conflict": None}
+            return _conflict(exc.code)
+        return {"context": advanced, "conflict": None}
+
+    async def _draft(self, principal: AuthorizedAgentPrincipal, draft_id: str) -> Any:
+        """The draft's content, read only under the ``agent.draft.propose`` scope it serves
+        (UTU attenuation fails closed without that grant)."""
+        scoped = await self._authority.attenuate(principal, PROPOSE_SCOPE)
+        try:
+            return await self._drafts.content(scoped, draft_id)
+        except DraftError as exc:
+            raise CoordinatorError(exc.code, retryable=exc.retryable) from exc
+
+    async def _recheck(
+        self,
+        session: VerifiedAgentSession,
+        event: ClientEventV2,
+        lease: TurnLease,
+        binding: DefinitionBinding,
+        grants: frozenset[str],
+    ) -> tuple[AuthorizedAgentPrincipal, ActivityActor, ActivityContext]:
+        """Before every mutation: the turn still owns its conversation, the human and Agent
+        still hold authority, the context is this conversation's active one and the
+        definition is the admitted one. (Not atomic with the write that follows.)"""
+        await self._live(lease)
+        agent_id = event.agent_ids[0]
+        principal, actor = await self._actor(session, agent_id, grants)
+        request = event.activity
+        assert isinstance(request, ActivityConfirmV2 | ActivityCompleteV2)
+        context = await self._owned(actor, event, request.context_id)
+        await self._gate.ensure_activity_current(
+            session.tenant_id, agent_id, binding, self.activity
+        )
+        return principal, actor, context
+
+    async def _presentation(
+        self,
+        principal: AuthorizedAgentPrincipal,
+        context: ActivityContext,
+        view: Mapping[str, Any],
+        manuscript: ManuscriptDefinition,
+    ) -> dict[str, Any] | None:
+        """The catalog options the server offers for the current stage's catalog fields,
+        bound to this context, session and revision by its digest. The human's own
+        projection only, one bounded page per field; ``complete`` says whether the page
+        is the whole listing. It records what was offered, never what was rendered."""
+        if view.get("status") != "active":
+            return None
+        stage = manuscript.stage(view["stage"])
+        specs = [manuscript.field(key) for key in stage.collects]
+        catalogued = [spec for spec in specs if spec.catalog is not None]
+        if not catalogued:
+            return None
+        if CATALOG_SIGNAL not in self._authority.grants_for(principal).invoke:
+            raise EventPermissionError("Activity grants denied")
+        fields = []
+        for spec in catalogued:
+            page = await self._catalog_page(principal, spec)
+            fields.append(
+                {
+                    "key": spec.key,
+                    "catalog": spec.catalog,
+                    "entries": [
+                        {
+                            "ref": f"{entry['ref']['key']}@{entry['ref']['version']}",
+                            "key": entry["ref"]["key"],
+                            "version": entry["ref"]["version"],
+                            "title": entry["identity"]["title"][:MAX_LABEL],
+                            "descriptor_digest": entry["descriptor_digest"],
+                        }
+                        for entry in page["entries"]
+                    ],
+                    "complete": page.get("next_after") is None,
+                }
+            )
+        body = {
+            "contract": PRESENTATION_CONTRACT,
+            "schema_version": 1,
+            "context_id": context.context_id,
+            "session_id": view["session_id"],
+            "revision": view["revision"],
+            "stage": stage.key,
+            "fields": fields,
+        }
+        return {**body, "digest": sha256_hex(body)}
+
+    async def _turn(
+        self,
+        principal: AuthorizedAgentPrincipal,
+        context: ActivityContext,
+        view: dict[str, Any],
+        manuscript: ManuscriptDefinition,
+        *,
+        interpretation: dict[str, Any] | None = None,
+        confirmation: dict[str, Any] | None = None,
+        completion: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """An outcome with the presentation for the view's (current) stage."""
+        presentation = await self._presentation(principal, context, view, manuscript)
+        return self._result(
+            context,
+            view,
+            manuscript,
+            interpretation,
+            presentation,
+            confirmation=confirmation,
+            completion=completion,
+        )
 
     # --- Authority and configuration ----------------------------------------------------------
 
@@ -537,23 +1059,7 @@ class CreationInterviewCoordinator:
         options: dict[str, list[dict[str, str]]] = {}
         incomplete: set[str] = set()
         for spec in specs:
-            projected = await project_catalog(
-                self._authority,
-                self._exchange,
-                principal,
-                {
-                    "contract": "caos.catalog.project",
-                    "schema_version": 1,
-                    "operation": "list",
-                    "request": {
-                        "kind": CATALOG_KINDS[spec.catalog or ""],
-                        "limit": MAX_CATALOG_OPTIONS,
-                    },
-                },
-            )
-            if not isinstance(projected, dict) or not projected.get("ok"):
-                raise CoordinatorError("activity.catalog_unavailable", retryable=True)
-            page = projected["result"]
+            page = await self._catalog_page(principal, spec)
             options[spec.key] = [
                 {"key": entry["ref"]["key"], "title": entry["identity"]["title"][:MAX_LABEL]}
                 for entry in page["entries"]
@@ -563,12 +1069,38 @@ class CreationInterviewCoordinator:
                 incomplete.add(spec.key)
         return options, incomplete
 
+    async def _catalog_page(
+        self, principal: AuthorizedAgentPrincipal, spec: FieldSpec
+    ) -> dict[str, Any]:
+        """One bounded page of the human's own catalog projection for a field's kind."""
+        projected = await project_catalog(
+            self._authority,
+            self._exchange,
+            principal,
+            {
+                "contract": "caos.catalog.project",
+                "schema_version": 1,
+                "operation": "list",
+                "request": {
+                    "kind": CATALOG_KINDS[spec.catalog or ""],
+                    "limit": MAX_CATALOG_OPTIONS,
+                },
+            },
+        )
+        if not isinstance(projected, dict) or not projected.get("ok"):
+            raise CoordinatorError("activity.catalog_unavailable", retryable=True)
+        return projected["result"]
+
     def _result(
         self,
         context: ActivityContext,
         view: dict[str, Any],
         manuscript: ManuscriptDefinition,
-        interpretation: dict[str, Any],
+        interpretation: dict[str, Any] | None,
+        presentation: dict[str, Any] | None = None,
+        *,
+        confirmation: dict[str, Any] | None = None,
+        completion: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return self._envelope(
             context,
@@ -576,6 +1108,9 @@ class CreationInterviewCoordinator:
             manuscript=_summary(view, manuscript),
             prompt=prompt(view, manuscript),
             interpretation=interpretation,
+            presentation=presentation,
+            confirmation=confirmation,
+            completion=completion,
         )
 
     async def _outcome(
@@ -592,6 +1127,7 @@ class CreationInterviewCoordinator:
             resumed=resumed,
             manuscript=_summary(view, manuscript),
             prompt=prompt(view, manuscript),
+            presentation=await self._presentation(principal, context, view, manuscript),
         )
 
     def _envelope(
@@ -602,9 +1138,16 @@ class CreationInterviewCoordinator:
         manuscript: dict[str, Any] | None,
         prompt: dict[str, Any] | None,
         interpretation: dict[str, Any] | None = None,
+        presentation: dict[str, Any] | None = None,
+        confirmation: dict[str, Any] | None = None,
+        completion: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         draft = context.references.get("draft")
-        if context.status != "active" or manuscript is None:
+        proposal = (completion or {}).get("proposal")
+        if proposal is not None and proposal.get("status") in ("pending", "deciding"):
+            # The human decides the proposal through the draft's own governed routes.
+            action = "decide_proposal"
+        elif context.status != "active" or manuscript is None:
             action = "none"
         elif manuscript["status"] == "active" and manuscript["ready_to_complete"]:
             action = "complete"
@@ -618,7 +1161,9 @@ class CreationInterviewCoordinator:
         return {
             "contract": OUTCOME_CONTRACT,
             # 2 (COORD-0.2): ``interpretation``, ``confirmations_pending`` and ``confirm``.
-            "schema_version": 2,
+            # 3 (COORD-0.3): ``presentation``, ``confirmation``, ``completion`` and
+            # ``decide_proposal``.
+            "schema_version": 3,
             "activity": self.activity,
             "agent_id": context.actor.principal_id,
             "context": {
@@ -634,6 +1179,9 @@ class CreationInterviewCoordinator:
             "prompt": prompt,
             "next_action": action,
             "interpretation": interpretation,
+            "presentation": presentation,
+            "confirmation": confirmation,
+            "completion": completion,
             "authorizes": dict(_NOT_AUTHORIZED),
         }
 
@@ -653,6 +1201,80 @@ def _summary(view: Mapping[str, Any], manuscript: ManuscriptDefinition) -> dict[
         "confirmations_pending": bool(pending) and len(pending) == len(view["missing"]),
         "ready_to_complete": view["ready_to_complete"],
     }
+
+
+# --- Completion (deterministic) ------------------------------------------------------------
+
+
+class ToolIdentityAmbiguous(ValueError):
+    """A selected Tool matches existing draft Tools ambiguously (duplicated, or equal only
+    after canonicalization): which configuration to keep is not decidable."""
+
+
+def _changes(artifact: Mapping[str, Any], content: Mapping[str, Any]) -> dict[str, Any]:
+    """Exactly the artifact's fields whose canonical values differ from the draft's. Draft
+    fields the interview does not produce are never touched and nothing is removed.
+
+    Tools: the Manuscript collects which Tools, not their configuration (``config: {}``).
+    A selected Tool whose key exactly matches one existing draft Tool keeps that Tool's
+    configuration; an empty configuration never erases one. Newly selected Tools keep the
+    artifact's configuration. Selection order is preserved."""
+    proposed = AgentDraftContent.model_validate(artifact.get("creation") or {}).data()
+    current = AgentDraftContent.model_validate(dict(content)).data()
+    if "tools" in proposed:
+        proposed["tools"] = _preserved_tools(proposed["tools"], current.get("tools") or [])
+    return {key: value for key, value in proposed.items() if current.get(key) != value}
+
+
+def _preserved_tools(
+    selected: list[dict[str, Any]], existing: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    tools = []
+    for tool in selected:
+        exact = [t for t in existing if t["key"] == tool["key"]]
+        similar = [t for t in existing if canonicalize(t["key"]) == canonicalize(tool["key"])]
+        if len(exact) > 1 or len(similar) != len(exact):
+            raise ToolIdentityAmbiguous(tool["key"])
+        if exact and not tool.get("config"):
+            tools.append({"key": tool["key"], "config": exact[0].get("config") or {}})
+        else:
+            tools.append(tool)
+    return tools
+
+
+def _recorded(context: ActivityContext, view: Mapping[str, Any]) -> dict[str, Any]:
+    """What the context durably records for this session's completion, if anything."""
+    proposal = context.references.get("proposal")
+    if proposal is not None:
+        return {
+            "status": "proposed",
+            "proposal": {
+                "proposal_id": proposal.id,
+                "base_revision": proposal.observed_revision,
+                "status": None,
+            },
+        }
+    draft = context.references.get("draft")
+    for applied in context.applied:
+        if draft is not None and applied.operation_id == _key(
+            "coord-adv",
+            context_id=context.context_id,
+            session_id=view["session_id"],
+            proposal=None,
+            draft_revision=draft.observed_revision,
+        ):
+            return {"status": "already_current", "proposal": None}
+    return {"status": None, "proposal": None}
+
+
+def _conflict(code: str, *, retryable: bool = False) -> dict[str, Any]:
+    return {"context": None, "conflict": {"code": code, "retryable": retryable}}
+
+
+def _completeness(presentation: Mapping[str, Any] | None) -> dict[str, bool]:
+    if presentation is None:
+        return {}
+    return {field["key"]: field["complete"] for field in presentation["fields"]}
 
 
 # --- Interpretation (deterministic; the model's output is a candidate, never a decision) ---
