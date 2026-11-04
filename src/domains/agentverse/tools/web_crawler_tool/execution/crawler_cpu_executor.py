@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import multiprocessing
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
 from functools import partial
@@ -24,8 +25,12 @@ class CpuExecutor:
         max_workers: int,
     ) -> None:
         self._max_workers = max_workers
+        # Explicitly ``spawn``: workers never fork the threaded API process, whichever
+        # way Uvicorn started it (with hot reload the server process is itself spawned,
+        # and its children inherited ``spawn``; without it the platform default applies).
         self._pool = ProcessPoolExecutor(
             max_workers=max_workers,
+            mp_context=multiprocessing.get_context("spawn"),
         )
         self._closed = False
 

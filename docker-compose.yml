@@ -8,6 +8,9 @@ services:
         APP_REVISION: "${APP_REVISION:-unknown}"
         APP_CHANNEL: "${APP_CHANNEL:-development}"
     container_name: caos-api
+    # Governed runtime: no hot reload (developers opt in with CAOS_API_RELOAD=true in a
+    # local override). Started from the mounted source, so no image rebuild is needed.
+    command: ["python", "-m", "src.base.system.serve"]
     ports:
       - "8001:8001"
     volumes:
@@ -15,14 +18,15 @@ services:
       - ./config:/app/config:ro
       - ./src:/app/src
       - ./chroma_db:/app/chroma_db
-      - /etc/localtime:/etc/localtime:ro
-      - /etc/timezone:/etc/timezone:ro 
     env_file:
       - .env
     environment:
       - REDIS_URL=redis://:${REDIS_PASSWORD:?Set a hex Redis password}@redis:6379/0
       - MCP_PROXY_ENABLED=${MCP_PROXY_ENABLED:-false}
       - MCP_PROXY_BASE_URL=http://mcp-proxy:8080/api
+      # The image's own time zone data, never the host's versioned database.
+      - TZ=Europe/Stockholm
+      - CAOS_API_RELOAD=false
     depends_on:
       mongo-init:
         condition: service_completed_successfully
@@ -30,7 +34,8 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-    restart: always
+    # Governed runtime: started and stopped only by controlled procedures.
+    restart: "no"
     networks:
       - app_network
 

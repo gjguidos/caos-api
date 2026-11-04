@@ -1,17 +1,12 @@
 #!/usr/bin/env python
 """
 Custom entrypoint for running the FastAPI application with Uvicorn.
+
+Hot reload is controlled only by ``CAOS_API_RELOAD`` (default: disabled); see
+``src/base/system/serve.py``.
 """
 
-import uvicorn
-
-from src.base.utils.env_utils import is_local_development
+from src.base.system.serve import main
 
 if __name__ == "__main__":
-    uvicorn.run(
-        "src.main:app",
-        host="0.0.0.0",
-        port=8001,
-        reload=is_local_development(),
-        log_config=None,  # Use our own logging config
-    )
+    main()

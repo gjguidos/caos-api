@@ -39,8 +39,11 @@ This page is evidence-labelled guidance, not proof. A session must confirm it ag
     and 9 escalate-only for local Stage 2);
   - POLICY-PROV-1, for production ([Security Findings](../SECURITY_FINDINGS.md));
   - DEF-5 accepted ([Agent Definition Governance](../AGENT_DEFINITION_GOVERNANCE.md) §4);
-  - operationally: reconciling Compose `restart: always` with the container's restart
-    policy `no` remains outstanding;
+  - operationally: RUNTIME-CONFIG-0.1 sets `restart: "no"`, removes the host time zone
+    mounts (`TZ=Europe/Stockholm`) and makes hot reload explicit (`CAOS_API_RELOAD`,
+    default off) in source; the live container adopts them only through the controlled
+    API-only recreation in [Runtime](../RUNTIME.md), which also retires its temporary
+    external restart override;
   - decided: Nataraja `verify`'s test-running mode needs the disposable harness.
 
 **COORD-0.1 / 0.2 / 0.3 — Creation interview coordinator (ENKI-1.0-B)** (COORD-0.1 in

@@ -116,8 +116,9 @@ on any container start or Uvicorn reload (any `.py` edit), without review.
 - **Evidence:** `agents/lifecycle/tests/test_policy_pin.py` (including a whole-lifespan
   abort) and the updated `test_genesis_local.py` (disposable Redis), plus the Nataraja
   pin findings, including tenant mismatch and stale transitions.
-- **Related, not changed:** Compose `restart: always`; Docker Desktop can still start the
-  container (it now fails closed on an unapproved policy). See
+- **Related:** Compose `restart: always` was changed to `restart: "no"` for the API in
+  RUNTIME-CONFIG-0.1 ([Runtime](RUNTIME.md)); a container started outside the controlled
+  procedure still fails closed on an unapproved policy. See
   [UTU Policy Pin](UTU_POLICY_PIN.md).
 
 ---
