@@ -10,21 +10,24 @@ This page is evidence-labelled guidance, not proof. A session must confirm it ag
 
 ## Current milestone
 
-**Current state (2026-11-03, verified; DOC-SYNC-0.2):**
-- **Repository:** `feature/ops-v2`, code baseline `236fce0`, pushed. The DOC-SYNC-0.2
-  documentation commit sits on top. Committed and published:
+**Current state (2026-11-03, verified; COORD-0.1 integrated, COORD-0.2 uncommitted):**
+- **Repository:** `feature/ops-v2` at `90dda47`, pushed. Committed and published:
   - `c1719b9`: integration of CONV-REC-0.1 through MIG-FIX-0.1, REV-1 to REV-5;
   - `dcf2d11`: docs reconciliation;
   - `7db5350`: STARTUP-POLICY-1;
-  - `236fce0`: TEST-SAFETY-0.1.
+  - `236fce0`: TEST-SAFETY-0.1;
+  - `fea15b5`: DOC-SYNC-0.2;
+  - `90dda47`: COORD-0.1 (creation interview coordinator).
+  COORD-0.2 (answer interpretation) is implemented and tested in an isolated worktree,
+  not committed.
 - **Runtime (observed 2026-11-03):**
-  - the development API (`caos-api`) is running (started 20:57:45Z), restart policy
-    `no`; `docker-compose.yml` still says `restart: always`;
+  - the development API (`caos-api`) is running COORD-0.1 (restarted 22:20:46Z),
+    restart policy `no`; `docker-compose.yml` still says `restart: always`;
   - startup logged `UTU policy pin verified`;
   - Nataraja `inspect` reports `passed`; source, approved pin, installed and runtime
     policy are all `88cdfa80…`.
 - **Tested:** through the disposable harness (`scripts/test-harness/run.sh`): full
-  backend 3277 passed, 11 skipped, 5 inherited root-signing failures.
+  backend 3332 passed, 11 skipped, 5 inherited root-signing failures (with COORD-0.2).
 - **Not enabled live:**
   - the `store.revise.approved@1.0.0` grant is neither in the checked-in policy nor
     installed;
@@ -38,6 +41,43 @@ This page is evidence-labelled guidance, not proof. A session must confirm it ag
   - operationally: reconciling Compose `restart: always` with the container's restart
     policy `no` remains outstanding;
   - decided: Nataraja `verify`'s test-running mode needs the disposable harness.
+
+**COORD-0.1 / COORD-0.2 — Creation interview coordinator (ENKI-1.0-B)** (COORD-0.1
+committed in `90dda47`, pushed and integrated; COORD-0.2 uncommitted).
+`CreationInterviewCoordinator` (`services/creation_interview_coordinator_v2.py`) is a
+deterministic application service bound to `ClientEventDispatcherV2`. It owns no state,
+store, grant, signal or trusted line.
+- **Events:** explicit V2 `activity.start` (activity key and draft), `activity.close`
+  (`abandoned` only) and, in COORD-0.2, `activity.answer` (context, expected Manuscript
+  revision and the human's message). Each targets exactly one Agent under the CONV-REC-0.1
+  turn lease and journal; `chat.message` is unchanged and never mutates a Manuscript.
+- **Admission:** the Agent's Conversation Tool declares the exact activity; exactly one
+  Manuscript Tool names the creation Manuscript; answers also need exactly one Reasoning
+  Tool with an explicit `tasks` list including `manuscript.answer_extraction@1.0.0`. No
+  fallback. The live Enki (legacy entry, no Tools) is therefore refused until Stage 2.
+- **Authority:** the Agent's UTU session principal and the required grants are checked
+  before any write, and again before an answer's mutation; Manuscript, Catalog and
+  Reasoning are reached only through their single-signal scoped helpers. Enki's runtime
+  is not awakened: these are trusted in-process calls, fenced by UTU's execution guard
+  and the turn lease.
+- **Answers (COORD-0.2):** Manuscript supplies the current stage; only its non-boolean
+  fields are offered to Reasoning, with the human's own catalog page per catalog field
+  (bounded; truncation is reported as incomplete). Verifier-accepted, medium- or
+  high-confidence, bounded candidates are applied by Manuscript's expected-revision
+  `answer`; boolean confirmations (`capabilities_reviewed`, `review_ready`) are never
+  inferred, so `next_action` becomes `confirm`. A moved revision is reported `stale`
+  without interpretation or mutation.
+- **Fencing (residual, accepted):** the lease check, UTU revalidation and Manuscript's
+  compare-and-set are separate steps (Redis, then Mongo), as for Activity Context writes.
+  A write can commit after a lease is lost within one lease period; Manuscript's
+  expected-revision compare-and-set still applies at most one answer per revision, and
+  the unjournaled outcome is reported `stale` on retry.
+- **Limits:** no confirmation interaction, proposal submission (`agent.draft.propose`),
+  Manuscript abandonment, draft prefill or Ptah frames yet (COORD-0.3).
+- **COORD-0.3 prerequisite (confirmations):** an explicit, typed human confirmation
+  bound to the context and expected revision. A capabilities confirmation must not imply
+  that the whole catalog was reviewed: catalog pages are bounded and an incomplete
+  projection (`catalog_incomplete`) is reported only in that turn's outcome.
 
 **TEST-SAFETY-0.1 — Disposable integration-test infrastructure** (committed in `236fce0`,
 pushed, integrated and verified 2026-11-03). See
@@ -120,17 +160,15 @@ and migrates Enki and Thoth (ADR-0005 §5).
 - **Stage 2 prerequisites:** Enki gains its explicit `conversation`, `manuscript` and
   `reasoning` Tool attachments only through the Stage 2 revision.
 - **Missing for an end-to-end, Enki-driven creation:**
-  - **No coordinator (ENKI-1.0-B):** no production code path drives Manuscript, draft or
-    reasoning signals from a conversation turn. Only tests invoke them.
-  - **No interview entry point:** no production route or handler starts an Activity
-    Context.
+  - **Coordinator (ENKI-1.0-B), partial:** explicit V2 activity events start, answer and
+    close an interview (COORD-0.1, COORD-0.2 above). Confirmations and proposal
+    submission are not implemented, and the live Enki lacks the Tool attachments.
   - **No interaction contract:** `conversation.submit` and interaction frames (PTAH-0.0)
     are designs only.
   - **No end-to-end evidence** of an Enki conversation producing a created Agent exists.
 - **Ptah:** not required for a first backend demonstration (inferred). Governed creation
-  already works over HTTP, and a minimal coordinator driven by plain conversation turns
-  would not need Ptah's interaction frames. This is unverified until a coordinator
-  exists. Ptah (PTAH-0.1a/0.2) remains required for the client experience.
+  already works over HTTP, and the coordinator's typed activity events need no Ptah
+  interaction frames. Ptah (PTAH-0.1a/0.2) remains required for the client experience.
 - **Unverified:** the client (`caos-client`) state; model behavior of the reasoning task
   in a live turn.
 

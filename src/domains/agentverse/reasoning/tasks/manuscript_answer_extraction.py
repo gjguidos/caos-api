@@ -1,8 +1,9 @@
 """``manuscript.answer_extraction@1.0.0``: one human message -> typed candidate answers.
 
-Input is prepared by a trusted caller (Enki's future turn coordinator): the message, the
-authorized current-stage field definitions, this stage's answers, bounded requester-visible
-catalog options and a short, explicitly selected guidance excerpt. Nothing else.
+Input is prepared by a trusted caller (the creation interview coordinator, COORD-0.2): the
+message, the authorized current-stage field definitions, this stage's answers, bounded
+requester-visible catalog options and a short, explicitly selected guidance excerpt.
+Nothing else.
 
 Output is untrusted. The verifier is deterministic and closed-world: it accepts a candidate
 only for a requested field, with a value of the field's type drawn from the supplied

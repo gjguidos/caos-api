@@ -322,8 +322,9 @@ async def invoke_manuscript(
     op: Operation,
     command: dict[str, Any],
 ) -> dict[str, Any]:
-    """Trusted in-process caller for an Agent runtime (Enki's future turn plan): narrows
-    the verified principal to exactly one Manuscript signal before binding a client."""
+    """Trusted in-process caller on an Agent's verified session principal (today the
+    creation interview coordinator, COORD-0.1/0.2; no runtime is required): narrows it to
+    exactly one Manuscript signal before binding a client."""
     scoped = await authority.attenuate(principal, SCOPES[op])
     client = exchange.bind(scoped)  # NEVER bind the unattenuated principal.
     try:

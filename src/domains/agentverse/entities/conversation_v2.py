@@ -7,6 +7,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    StrictInt,
     StringConstraints,
     field_validator,
     model_validator,
@@ -70,18 +71,35 @@ class ActivityCloseV2(BaseModel):
     reason: Literal["abandoned"]
 
 
+class ActivityAnswerV2(BaseModel):
+    """COORD-0.2: the human's answer (the event's ``message``) to one context's Manuscript,
+    bound to the revision the human answered. Neither carries authority."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    context_id: ResourceId
+    expected_revision: StrictInt = Field(ge=1)
+
+
+ActivityPayload = ActivityStartV2 | ActivityCloseV2 | ActivityAnswerV2
+PAYLOADS: dict[str, type[BaseModel]] = {
+    "activity.start": ActivityStartV2,
+    "activity.close": ActivityCloseV2,
+    "activity.answer": ActivityAnswerV2,
+}
+
+
 class ClientEventV2(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     conversation_id: Identifier
     event_id: Identifier
-    type: Literal["chat.message", "activity.start", "activity.close"]
+    type: Literal["chat.message", "activity.start", "activity.close", "activity.answer"]
     response_mode: Literal["context", "llm"] = "context"
     agent_ids: tuple[Identifier, ...] = Field(min_length=1, max_length=4)
     # Absent fields are never serialized: a ``chat.message`` dumps (and so digests in
     # the turn journal) exactly as before activity events existed.
     message: str | None = Field(default=None, min_length=1, max_length=8192, exclude_if=_absent)
-    activity: ActivityStartV2 | ActivityCloseV2 | None = Field(default=None, exclude_if=_absent)
+    activity: ActivityPayload | None = Field(default=None, exclude_if=_absent)
 
     @field_validator("agent_ids")
     @classmethod
@@ -96,10 +114,10 @@ class ClientEventV2(BaseModel):
             if self.message is None or self.activity is not None:
                 raise ValueError("chat.message carries exactly a message")
             return self
-        expected = ActivityStartV2 if self.type == "activity.start" else ActivityCloseV2
+        # Only an answer carries the human's message; start and close never do.
         if (
-            not isinstance(self.activity, expected)
-            or self.message is not None
+            not isinstance(self.activity, PAYLOADS[self.type])
+            or (self.message is not None) != (self.type == "activity.answer")
             or self.response_mode != "context"
             or len(self.agent_ids) != 1
         ):

@@ -6,8 +6,10 @@ completion, and emits a validated typed artifact. It calls no LLM and holds no S
 approval, activation or draft-write handle: the artifact is data for a later, separately
 authorized proposal (``agent.draft.propose@1.0.0``), which is declared, never invoked.
 
-Callers pass a verified ``ManuscriptActor``. No HTTP route or CPBX signal exposes this
-service yet (the proposed ``manuscript.session.*`` capability awaits approval).
+Callers pass a verified ``ManuscriptActor``. It is exposed only through the governed
+``manuscript.session.*@1.0.0`` signals (``capability.py``, single-signal scopes), which
+the creation interview coordinator invokes for an explicit activity turn; no HTTP route
+reaches it.
 """
 
 from __future__ import annotations

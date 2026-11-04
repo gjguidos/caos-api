@@ -177,8 +177,9 @@ async def project_catalog(
     principal: AuthorizedAgentPrincipal,
     command: dict[str, Any],
 ) -> dict[str, Any]:
-    """Trusted in-process caller for an Agent runtime (Enki's future turn plan): narrows
-    the verified principal to exactly ``catalog.project`` before binding a client."""
+    """Trusted in-process caller on an Agent's verified session principal (today the
+    creation interview coordinator, COORD-0.2; no runtime is required): narrows it to
+    exactly ``catalog.project`` before binding a client."""
     scoped = await authority.attenuate(principal, SCOPE)
     client = exchange.bind(scoped)  # NEVER bind the unattenuated principal.
     try:

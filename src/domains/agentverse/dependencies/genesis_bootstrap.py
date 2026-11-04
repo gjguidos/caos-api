@@ -530,9 +530,10 @@ def configure_genesis_transport(app: FastAPI, bindings: GenesisSecurityBindings)
                         visible=gateway_visibility(bindings.validation_gateways),
                     ),
                 )
-                # COORD-0.1: the creation interview coordinator, reached only by explicit
-                # activity events in a V2 turn. It holds no grant, signal or trusted line;
-                # each Agent's composition and UTU grants decide whether it applies.
+                # COORD-0.1/0.2: the creation interview coordinator, reached only by
+                # explicit activity events in a V2 turn. It holds no grant, signal or
+                # trusted line; each Agent's composition and UTU grants decide whether it
+                # applies (an answer also needs the Agent's Reasoning Tool and grant).
                 if conversation_gate is not None:
                     from src.domains.agentverse.services.creation_interview_coordinator_v2 import (
                         CreationInterviewCoordinator,
@@ -545,6 +546,7 @@ def configure_genesis_transport(app: FastAPI, bindings: GenesisSecurityBindings)
                             contexts=app.state.activity_contexts,
                             manuscripts=app.state.manuscripts,
                             gate=conversation_gate,
+                            turns=av.conversation_repository_v2().owns,
                         )
                     )
             # Enki's read-only catalog (CATALOG-0.1A), registered only when the reviewed

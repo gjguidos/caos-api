@@ -185,9 +185,10 @@ async def interpret(
     *,
     deadline: float | None = None,
 ) -> dict[str, Any]:
-    """Trusted in-process caller for an Agent runtime (Enki's future turn plan): narrows
-    the verified principal to exactly ``cognitive.interpret`` and bounds it by ``deadline``
-    (absolute ``time.monotonic()``)."""
+    """Trusted in-process caller on an Agent's verified session principal (today the
+    creation interview coordinator, COORD-0.2; no runtime is required): narrows it to
+    exactly ``cognitive.interpret`` and bounds it by ``deadline`` (absolute
+    ``time.monotonic()``)."""
     scoped = await authority.attenuate(principal, SCOPE)
     client = exchange.bind(scoped)  # NEVER bind the unattenuated principal.
     token = _DEADLINE.set(deadline)

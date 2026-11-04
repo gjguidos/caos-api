@@ -30,6 +30,8 @@ _KINDS: dict[str, CatalogKind] = {
     "workflow": "workflow",
     "rulepack": "rulepack",
 }
+# Read-only alias for trusted callers projecting a field's catalog (COORD-0.2).
+CATALOG_KINDS: Mapping[str, CatalogKind] = _KINDS
 
 
 class ManuscriptCatalog(Protocol):

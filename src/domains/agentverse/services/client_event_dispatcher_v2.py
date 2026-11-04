@@ -21,7 +21,11 @@ from src.domains.agentverse.agents.conversational_composition_v2 import (
 )
 from src.domains.agentverse.agents.lifecycle.agent_principal_resolver import VerifiedAgentSession
 from src.domains.agentverse.agents.lifecycle.khepri import Khepri
-from src.domains.agentverse.entities.conversation_v2 import ActivityStartV2, ClientEventV2
+from src.domains.agentverse.entities.conversation_v2 import (
+    ActivityAnswerV2,
+    ActivityStartV2,
+    ClientEventV2,
+)
 from src.domains.agentverse.entities.history_v2 import ConversationMessageV2
 from src.domains.agentverse.repositories.conversation_v2 import (
     ConversationRepositoryV2,
@@ -30,11 +34,16 @@ from src.domains.agentverse.repositories.conversation_v2 import (
 )
 from src.domains.agentverse.runtime.instances_v2 import AgentInstanceKey, AgentInstanceRegistryV2
 from src.domains.agentverse.security.utu import UTUAuthority
+from src.domains.agentverse.services.activity_errors_v2 import CoordinatorError
 from src.domains.agentverse.services.cognitive_response_v2 import CognitiveResponseUnavailable
 from src.domains.agentverse.services.conversation_history_v2 import ConversationHistoryV2
-from src.domains.agentverse.services.creation_interview_coordinator_v2 import CoordinatorError
 
 logger = logging.getLogger(__name__)
+
+# Turn budgets (seconds), within the CONV-REC-0.1 window (60 s turn + grace). An answer
+# includes one bounded Reasoning call; other activity events are deterministic.
+ACTIVITY_SECONDS = 10
+ANSWER_SECONDS = 45
 
 
 def response_for(event: ClientEventV2, kind: str, **payload: Any) -> dict[str, Any]:
@@ -168,6 +177,16 @@ class ClientEventDispatcherV2:
             return response_for(
                 event, "activity.state", result=outcome, definitions=[binding.wire()]
             )
+        if isinstance(request, ActivityAnswerV2):
+            for coordinator in self._coordinators.values():
+                try:
+                    outcome, binding = await coordinator.answer(session, event, lease)
+                except ActivityNotFound:
+                    continue
+                return response_for(
+                    event, "activity.state", result=outcome, definitions=[binding.wire()]
+                )
+            raise ActivityNotFound("Activity context not found")
         for coordinator in self._coordinators.values():
             try:
                 outcome = await coordinator.close(session, event, lease)
@@ -176,6 +195,53 @@ class ClientEventDispatcherV2:
             return response_for(event, "activity.state", result=outcome)
         raise ActivityNotFound("Activity context not found")
 
+    @staticmethod
+    def _answer_messages(
+        session: VerifiedAgentSession, event: ClientEventV2, response: dict[str, Any]
+    ) -> tuple[ConversationMessageV2, ...]:
+        """COORD-0.2 transcript: the human's answer and the activity's deterministic
+        outcome summary (a capability contribution, never an assistant response)."""
+        result = response["result"]
+        interpretation = result["interpretation"] or {}
+        identity = hashlib.sha256(
+            json.dumps([session.user_id, event.event_id]).encode()
+        ).hexdigest()
+        shared: dict[str, Any] = {
+            "tenant_id": session.tenant_id,
+            "conversation_id": event.conversation_id,
+            "event_id": event.event_id,
+            "turn_user_id": session.user_id,
+            "visible_agent_ids": event.agent_ids,
+        }
+        summary = {
+            "activity": result["activity"],
+            "context_id": result["context"]["context_id"],
+            "revision": (result["manuscript"] or {}).get("revision"),
+            "stage": (result["manuscript"] or {}).get("stage"),
+            "interpretation": interpretation.get("status"),
+            "applied": interpretation.get("applied", []),
+            "next_action": result["next_action"],
+            "prompt": (result["prompt"] or {}).get("text"),
+        }
+        return (
+            ConversationMessageV2(
+                id=identity + "-user",
+                participant_id=session.user_id,
+                kind="user_message",
+                content=event.message or "",
+                **shared,
+            ),
+            ConversationMessageV2(
+                id=identity + "-0",
+                participant_id=event.agent_ids[0],
+                kind="capability_contribution",
+                capability="activity.answer",
+                content=json.dumps(summary, ensure_ascii=False, sort_keys=True),
+                visible_user_ids=(session.user_id,),
+                **shared,
+            ),
+        )
+
     async def _execute(
         self, session: VerifiedAgentSession, event: ClientEventV2, lease: TurnLease
     ) -> dict[str, Any]:
@@ -183,10 +249,17 @@ class ClientEventDispatcherV2:
         document = None
         try:
             if event.type != "chat.message":
-                # COORD-0.1: explicit, typed activity events; no transcript, no model.
-                async with asyncio.timeout(10):
+                # COORD-0.1/0.2: explicit, typed activity events. Only an answer calls a
+                # (governed) model and records transcript entries.
+                answer = event.type == "activity.answer"
+                async with asyncio.timeout(ANSWER_SECONDS if answer else ACTIVITY_SECONDS):
                     response = await self._activity(session, event, lease)
                     await self.authorize(session, event)
+                if answer:
+                    document = await self.history.authorize(
+                        session, event.conversation_id, event.agent_ids
+                    )
+                    messages = self._answer_messages(session, event, response)
             else:
                 # Fixed capability and bounded targets; client cannot choose arbitrary signals.
                 results = []
